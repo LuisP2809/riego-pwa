@@ -3,6 +3,7 @@ const ROOT=path.resolve(__dirname,'..');
 function tsModule(file,requireFn=require,extras={}){const exports={};const context={exports,module:{exports},require:requireFn,Date,Intl,URL,URLSearchParams,Math,Number,String,Set,Map,JSON,console,Error,...extras};vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(ROOT,file),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText,context);return exports;}
 const model=tsModule('src/lib/riego-model.ts'),access=tsModule('src/lib/access.ts');
 const humedades=tsModule('src/lib/humedades.ts',name=>name==='./riego-model'?model:require(name),{crypto});
+const compactacion=tsModule('src/lib/compactacion.ts',name=>name==='./riego-model'?model:require(name),{crypto});
 const locations=tsModule('src/lib/locations.ts',name=>name==='./riego-model'?model:require(name));
 const transport=tsModule('src/lib/drive-transport.ts',name=>name==='./access'?access:require(name));
 const connection=tsModule('src/lib/connection.ts',name=>name==='../../package.json'?require('../package.json'):require(name));
@@ -115,6 +116,73 @@ test('Sede usa el selector del dispositivo y conserva ambas opciones sin un men�
   assert(html.includes('<select aria-label="Sede"'));assert(html.includes('value="OLMOS"'));assert(html.includes('value="MOTUPE"'));
   assert(html.includes(`value="${value}" selected=""`));assert(!html.includes('select-trigger'));assert(!html.includes('data-scroll-locked'));
  }
+});
+function compactionFixture(){
+ const context={date:base.date,lugar:base.lugar,fundo:base.fundo,modulo:base.modulo,lote:base.lote};
+ const values=compactacion.emptyCompactionValues();
+ for(const [index,point] of compactacion.COMPACTION_POINTS.entries())values[point]={m1:String(index),m2:`${index+1},5`,m3:String(index+2)};
+ return {context,values};
+}
+test('Compactación crea P1 a P6 con tres lecturas independientes y la misma fecha y ubicación',()=>{
+ const {context,values}=compactionFixture(),records=compactacion.makeCompactionRecords(context,values);
+ assert.deepEqual(Array.from(records,r=>r.puntos),['P1','P2','P3','P4','P5','P6']);
+ assert.equal(new Set(Array.from(records,r=>r.id)).size,6);
+ records.forEach((r,index)=>{
+  assert.equal(r.kind,'COMPACTACION');assert(model.recordSchema.safeParse(r).success);
+  for(const key of ['date','lugar','fundo','modulo','lote'])assert.equal(r[key],context[key]);
+  assert.equal(r.m1,index);assert.equal(r.m2,index+1.5);assert.equal(r.m3,index+2);
+ });
+ values.P1.m1='99';assert.equal(records[0].m1,0);assert.equal(values.P2.m1,'1');
+ const reset=compactacion.emptyCompactionValues();reset.P1.m1='10';assert.equal(reset.P2.m1,'');assert.equal(reset.P1.m2,'');
+ const next=compactacion.emptyCompactionValues();assert.equal(next.P1.m1,'');
+});
+test('Compactación valida las 18 lecturas y todos los datos del lote antes de guardar',()=>{
+ const {context,values}=compactionFixture();
+ for(const point of compactacion.COMPACTION_POINTS)for(const reading of compactacion.COMPACTION_READINGS){
+  for(const value of ['', ' ', '-1', 'abc', 'Infinity', 'NaN']){
+   const invalid={...values,[point]:{...values[point],[reading]:value}};
+   assert.throws(()=>compactacion.makeCompactionRecords(context,invalid),error=>error.message.includes(point)&&error.message.includes(reading.toUpperCase()));
+  }
+ }
+ for(const key of ['date','lugar','fundo','modulo','lote'])assert.throws(()=>compactacion.makeCompactionRecords({...context,[key]:''},values));
+ assert.throws(()=>compactacion.makeCompactionRecords({...context,date:'2026-02-30'},values));
+ assert.throws(()=>compactacion.makeCompactionRecords(context,{...values,P6:undefined}),/M1.*P6/);
+});
+test('Los seis puntos conservan las columnas originales y no duplican ni cambian lo ya guardado al reintentar',()=>{
+ const b=backend(),{context,values}=compactionFixture(),records=JSON.parse(JSON.stringify(compactacion.makeCompactionRecords(context,values)));
+ const invoke=rows=>b.call('sync',{token:b.owner.token,records:rows});
+ let result=invoke(records);assert(result.ok,result.error);
+ assert.equal(b.sheets.COMPACTACION.values.length,7);
+ assert.deepEqual(b.sheets.COMPACTACION.values[0],Array.from(model.HEADERS.COMPACTACION));
+ b.sheets.COMPACTACION.values.slice(1).forEach((row,index)=>{
+  assert.equal(row.length,12);assert.deepEqual(row.slice(0,3),[2026,10,41]);assert.equal(row[3].toISOString().slice(0,10),context.date);
+  assert.deepEqual(row.slice(4,9),[context.lugar,context.fundo,context.modulo,context.lote,`P${index+1}`]);
+  assert.deepEqual(row.slice(9),[index,index+1.5,index+2]);assert(b.notes.COMPACTACION[index+2].includes(records[index].id));
+ });
+ result=invoke(records);assert(result.ok,result.error);assert.equal(b.sheets.COMPACTACION.values.length,7);
+ const conflict=invoke([{...records[0],id:crypto.randomUUID()},{...records[5],m3:999}]);
+ assert.equal(conflict.ok,false);assert.equal(b.sheets.COMPACTACION.values.length,7);assert.equal(b.sheets.COMPACTACION.values[6][11],7);
+ const second=compactacion.makeCompactionRecords({...context,lote:'OTRO LOTE'},values);
+ result=invoke(JSON.parse(JSON.stringify(second)));assert(result.ok,result.error);assert.equal(b.sheets.COMPACTACION.values.length,13);
+ assert.equal(b.sheets.COMPACTACION.values[1][7],context.lote);assert.equal(b.sheets.COMPACTACION.values[7][7],'OTRO LOTE');
+ assert.equal(b.sheets.HUMEDADES.values.length,1);assert.equal(b.sheets.PRESIONES.values.length,1);
+});
+test('El formulario de compactación muestra seis puntos ordenados y 18 casillas con etiquetas y unidad',()=>{
+ const React=require('react'),{renderToStaticMarkup}=require('react-dom/server');
+ const Fields=tsModule('src/components/compaction-fields.tsx',name=>name==='@/lib/compactacion'?compactacion:require(name)).default;
+ const {values}=compactionFixture(),render=(ready,unit)=>renderToStaticMarkup(React.createElement(Fields,{ready,unit,values,onChange(){}}));
+ const html=render(true,'kg/cm²');assert.equal((html.match(/<input /g)||[]).length,18);assert.equal((html.match(/<fieldset /g)||[]).length,6);
+ let previous=-1;
+ for(let index=1;index<=6;index++){
+  const position=html.indexOf(`<legend>Punto ${index} (P${index})</legend>`);assert(position>previous);previous=position;
+  for(const reading of ['M1','M2','M3']){
+   const label=`${reading} del punto P${index} (kg/cm²)`;
+   const input=html.match(new RegExp(`<input [^>]*aria-label="${label.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}"[^>]*>`))?.[0];
+   assert(input,label);assert(input.includes('type="number"'));assert(input.includes('inputMode="decimal"'));assert(input.includes('step="any"'));assert(input.includes('min="0"'));assert(input.includes('required=""'));
+  }
+ }
+ assert(!render(false).includes('<input'));assert(render(false).includes('Selecciona fecha'));
+ assert(render(true).includes('aria-label="M1 del punto P1"'));
 });
 test('GeoJSON original: 254 identidades únicas y coincidencia de ubicación completa',()=>{
  const bytes=fs.readFileSync(path.join(ROOT,'data/lotes-mapa.geojson'));

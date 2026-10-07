@@ -1,11 +1,11 @@
-# Riego 0.1.7
+# Riego 0.1.8
 
-Sede y los filtros usan el selector del dispositivo, igual que Fundo, Módulo y Lote. Se elimina el menú de Sede que bloqueaba el desplazamiento de la página y aplicaba un margen lateral al abrirse.
+Compactación muestra seis bloques fijos, de **Punto 1 (P1)** a **Punto 6 (P6)**. Cada bloque tiene sus casillas **M1, M2 y M3**, con la unidad configurada. Los puntos aparecen al completar fecha, lugar, fundo, módulo y lote.
 
-El documento y el formulario declaran su ancho completo, las columnas de celular permiten reducirse dentro de la pantalla y las pestañas pueden partir textos largos. Los campos mantienen una fuente de al menos 16 px y el tamaño de texto permanece estable al enfocar una humedad. El desplazamiento de la página es vertical.
+**Guardar compactación** valida las 18 lecturas y guarda los seis puntos juntos en una transacción local. Cada punto se envía como una fila en las columnas originales de COMPACTACION: PUNTOS contiene P1–P6, y M1, M2 y M3 conservan las lecturas de ese punto. Se admiten cero y decimales; los valores incompletos, negativos o no numéricos se rechazan antes de guardar.
 
-La APK declara **adjustResize** para que Android ajuste el espacio disponible al mostrar el teclado. La PWA solicita **interactive-widget=resizes-content** para los navegadores compatibles. No se desactiva el zoom del navegador ni se modifican las mediciones guardadas.
+Después de guardar se vacían las lecturas y se conserva la fecha y ubicación para elegir el siguiente lote. Cambiar fecha, sede, fundo, módulo o lote también limpia las casillas. Humedades conserva las profundidades de Olmos y Motupe, y los selectores y el ajuste del teclado de la versión anterior permanecen.
 
-Instala Riego-0.1.7.apk sobre la versión actual, sin desinstalar ni borrar datos, para conservar el acceso y los registros. No se requiere volver a implementar Apps Script. Humedades conserva 20, 40 y 60 cm en Olmos y añade 80 cm en Motupe.
+Instala **Riego-0.1.8.apk** sobre la versión actual, sin desinstalar ni borrar datos, para conservar el acceso y los registros. No se requiere volver a implementar Apps Script.
 
-Se ejecutan 29 pruebas de selectores, captura, acceso, transporte, sincronización y mapa, además de la compilación web y Android. Se verifica que el selector de Sede muestre ambas sedes sin el menú anterior. Las pruebas de Apps Script son simuladas. La vista local no pudo abrirse en el navegador de revisión; el comportamiento visual del teclado en el celular requiere la comprobación del propietario. La APK conserva la firma de desarrollo de las versiones anteriores.
+Se ejecutan 33 pruebas de captura, selectores, acceso, transporte, sincronización y mapa, además de la compilación web y Android. Las nuevas pruebas verifican P1–P6, las 18 casillas, la validación completa, las columnas originales y los reintentos sin duplicar. Las pruebas de Apps Script y HTTP son simuladas; la revisión visual, teclado y sincronización desde el celular requieren la comprobación del propietario. La APK conserva la firma de desarrollo de las versiones anteriores.
