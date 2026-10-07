@@ -1,0 +1,7 @@
+{
+  "appId": "pe.riego.campo",
+  "appName": "Riego",
+  "webDir": "dist",
+  "server": {"androidScheme": "https"},
+  "android": {"backgroundColor": "#063f36"}
+}

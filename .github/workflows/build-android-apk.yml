@@ -1,0 +1,90 @@
+name: APK descargable de Riego
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['README.md', 'docs/**', 'downloads/**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: riego-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      version: ${{ steps.package.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Instalar dependencias
+        run: npm ci
+      - name: Comprobar acceso, sincronización y mapa
+        run: npm test
+      - name: Preparar Android
+        run: npm run android:init
+      - name: Construir APK
+        run: |
+          chmod +x android/gradlew
+          npm run apk:debug
+      - name: Preparar descarga
+        id: package
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          mkdir -p apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk "apk/Riego-$version.apk"
+          cd apk
+          sha256sum "Riego-$version.apk" > "Riego-$version.sha256"
+      - name: Guardar APK de esta compilación
+        uses: actions/upload-artifact@v4
+        with:
+          name: Riego-APK-${{ steps.package.outputs.version }}
+          path: apk/*
+          retention-days: 90
+          if-no-files-found: error
+  release:
+    needs: apk
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: Riego-APK-${{ needs.apk.outputs.version }}
+          path: apk
+      - name: Publicar descarga en Releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RIEGO_VERSION: ${{ needs.apk.outputs.version }}
+        run: |
+          tag="v$RIEGO_VERSION"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            existing_commit="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" --jq .object.sha)"
+            if [ "$existing_commit" != "$GITHUB_SHA" ]; then
+              echo 'Esta versión ya tiene un APK. Aumenta package.json antes de publicar otra versión.'
+              exit 1
+            fi
+            gh release upload "$tag" apk/* --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$tag" apk/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Riego $RIEGO_VERSION" --notes-file docs/release-notes.md
+          fi
