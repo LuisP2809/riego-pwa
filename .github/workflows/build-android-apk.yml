@@ -45,6 +45,30 @@ jobs:
         run: |
           chmod +x android/gradlew
           npm run apk:debug
+      - name: Verificar APK de actualización
+        env:
+          RIEGO_CERT_SHA256: d3ddb0a20e478eb21fd628e65e0c0fb99b45cc7ff4fc9b469b8a42bdcafe6c4e
+        run: |
+          riego_apk_path='android/app/build/outputs/apk/debug/app-debug.apk'
+          riego_certificate_report="$("$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$riego_apk_path")"
+          printf '%s\n' "$riego_certificate_report"
+          if [[ "$riego_certificate_report" != *"Signer #1 certificate SHA-256 digest: $RIEGO_CERT_SHA256"* ]]; then
+            echo 'La APK no conserva la firma de las versiones anteriores.'
+            exit 1
+          fi
+          riego_version="$(node -p "require('./package.json').version")"
+          riego_version_code="$(node -p "require('./package.json').version.split('.').map(Number).reduce((total, value, index) => total + value * [1000000, 1000, 1][index], 0)")"
+          riego_badging_report="$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$riego_apk_path")"
+          if [[ "$riego_badging_report" != *"package: name='pe.riego.campo' versionCode='$riego_version_code' versionName='$riego_version'"* || "$riego_badging_report" != *"sdkVersion:'26'"* || "$riego_badging_report" != *"targetSdkVersion:'36'"* ]]; then
+            echo 'El identificador o la versión Android de la APK no coincide.'
+            exit 1
+          fi
+          riego_manifest_report="$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump xmltree "$riego_apk_path" AndroidManifest.xml)"
+          if [[ "$riego_manifest_report" != *'android:windowSoftInputMode(0x0101022b)=(type 0x11)0x10'* ]]; then
+            echo 'La APK no conserva el ajuste del teclado.'
+            exit 1
+          fi
+          printf 'APK verificada: pe.riego.campo, versión %s, código %s, Android 8+, adjustResize.\n' "$riego_version" "$riego_version_code"
       - name: Preparar descarga
         id: package
         run: |

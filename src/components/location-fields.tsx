@@ -1,14 +1,14 @@
 import {locationOptions,type FieldLocation,type LocationField} from "@/lib/locations";
 
-type Props={rows:readonly FieldLocation[];values:Record<string,string>;onChange:(field:LocationField,value:string)=>void};
+type Props={rows:readonly FieldLocation[];values:Record<string,string>;onChange:(field:LocationField,value:string)=>void;includeLot?:boolean};
 const FIELDS:{key:LocationField;label:string;placeholder:string}[]=[
   {key:"fundo",label:"Fundo",placeholder:"Selecciona un fundo"},
   {key:"modulo",label:"Módulo",placeholder:"Selecciona un módulo"},
   {key:"lote",label:"Lote",placeholder:"Selecciona un lote"},
 ];
 
-export default function LocationFields({rows,values,onChange}:Props){
-  return <>{FIELDS.map(({key,label,placeholder})=>
+export default function LocationFields({rows,values,onChange,includeLot=true}:Props){
+  return <>{FIELDS.filter(({key})=>includeLot||key!=="lote").map(({key,label,placeholder})=>
     <label className={`field ${key==="lote"?"wide":""}`} key={key}>
       <span>{label}</span>
       <select name={key} aria-label={label} value={values[key]} required

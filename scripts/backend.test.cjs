@@ -5,6 +5,7 @@ const model=tsModule('src/lib/riego-model.ts'),access=tsModule('src/lib/access.t
 const humedades=tsModule('src/lib/humedades.ts',name=>name==='./riego-model'?model:require(name),{crypto});
 const compactacion=tsModule('src/lib/compactacion.ts',name=>name==='./riego-model'?model:require(name),{crypto});
 const locations=tsModule('src/lib/locations.ts',name=>name==='./riego-model'?model:require(name));
+const presiones=tsModule('src/lib/presiones.ts',name=>name==='./riego-model'?model:name==='./locations'?locations:require(name),{crypto});
 const transport=tsModule('src/lib/drive-transport.ts',name=>name==='./access'?access:require(name));
 const connection=tsModule('src/lib/connection.ts',name=>name==='../../package.json'?require('../package.json'):require(name));
 const webReply=data=>({ok:true,status:200,headers:{get:()=> 'application/json'},text:async()=>JSON.stringify(data)});
@@ -183,6 +184,82 @@ test('El formulario de compactación muestra seis puntos ordenados y 18 casillas
  }
  assert(!render(false).includes('<input'));assert(render(false).includes('Selecciona fecha'));
  assert(render(true).includes('aria-label="M1 del punto P1"'));
+});
+function pressureFixture(){
+ const rows=JSON.parse(fs.readFileSync(path.join(ROOT,'data/lotes-mapa.geojson'))).features.map(model.featureLocation);
+ const context={date:'2026-10-07',lugar:'OLMOS',fundo:'CHALLAPAMPA',modulo:'M11'};
+ const lots=presiones.modulePressureLots(rows,context);
+ const values=Object.fromEntries(Array.from(lots,(lot,index)=>[lot,{ESTE:String(index),OESTE:`${index+1},5`} ]));
+ return {rows,context,lots,values};
+}
+test('Presiones muestra los 23 lotes de Olmos Challapampa M11 sin depender de un lote seleccionado',()=>{
+ const {rows,context,lots}=pressureFixture();
+ assert.equal(lots.length,23);assert.equal(lots[0],'M11T01-39');assert.equal(lots[1],'M11T01-40');assert(lots.includes('M11T02-42B'));assert(lots.includes('M11T05-104'));
+ const mixed=[...rows,...rows,{...context,lugar:'MOTUPE',lote:'FUERA-SEDE'},{...context,fundo:'OTRO',lote:'FUERA-FUNDO'},{...context,modulo:'M12',lote:'FUERA-MODULO'}];
+ assert.deepEqual(Array.from(presiones.modulePressureLots(mixed,{...context,lugar:'olmos',fundo:'Challapampa',modulo:'m11',lote:lots[0]})),Array.from(lots));
+ for(const key of ['lugar','fundo','modulo'])assert.equal(presiones.modulePressureLots(rows,{...context,[key]:''}).length,0);
+ const other=presiones.modulePressureLots(rows,{...context,modulo:'M12'});assert(other.length>0);assert(other.every(lot=>lot.startsWith('M12')));assert(!other.includes(lots[0]));
+ assert.equal(presiones.pressureLotLabel('M11T01-39'),'Lote 39');assert.equal(presiones.pressureLotLabel('M11T02-42B'),'Lote 42B');assert.equal(presiones.pressureLotLabel('M02T01L01'),'Lote 01');assert.equal(presiones.pressureLotLabel('OTRO CODIGO'),'Lote OTRO CODIGO');
+});
+test('El guardado de presión genera una fila por lote y lado; conserva cero, decimales y lecturas parciales',()=>{
+ const {context,lots,values}=pressureFixture(),records=presiones.makePressureRecords(context,lots,values);
+ assert.equal(records.length,46);assert.equal(new Set(Array.from(records,r=>r.id)).size,46);
+ records.forEach((r,index)=>{
+  assert.equal(r.kind,'PRESIONES');assert(model.recordSchema.safeParse(r).success);
+  for(const key of ['date','lugar','fundo','modulo'])assert.equal(r[key],context[key]);
+  assert.equal(r.lote,lots[Math.floor(index/2)]);assert.equal(r.lado,index%2?'OESTE':'ESTE');assert.equal(r.presion,index%2?Math.floor(index/2)+1.5:Math.floor(index/2));
+ });
+ const partial={[lots[0]]:{ESTE:'0',OESTE:' '},[lots[1]]:{OESTE:'2,75'},OTRO_LOTE:{ESTE:'99'}};
+ const saved=presiones.makePressureRecords(context,[...lots,lots[0]],partial);
+ assert.deepEqual(Array.from(saved,r=>[r.lote,r.lado,r.presion]),[[lots[0],'ESTE',0],[lots[1],'OESTE',2.75]]);
+ partial[lots[0]].ESTE='10';assert.equal(saved[0].presion,0);assert.equal(records[0].presion,0);
+});
+test('Las presiones inválidas y los datos incompletos rechazan el conjunto antes de guardar',()=>{
+ const {context,lots,values}=pressureFixture();
+ for(const lot of [lots[0],lots.at(-1)])for(const side of ['ESTE','OESTE'])for(const value of ['-1','abc','Infinity','NaN','1,2,3']){
+  const invalid={...values,[lot]:{...values[lot],[side]:value}};
+  assert.throws(()=>presiones.makePressureRecords(context,lots,invalid),error=>error.message.includes(presiones.pressureLotLabel(lot))&&error.message.includes(side==='ESTE'?'Este':'Oeste'));
+ }
+ for(const key of ['date','lugar','fundo','modulo'])assert.throws(()=>presiones.makePressureRecords({...context,[key]:''},lots,values));
+ assert.throws(()=>presiones.makePressureRecords({...context,date:'2026-02-30'},lots,values));
+ assert.throws(()=>presiones.makePressureRecords(context,[],values),/no tiene lotes/);
+ assert.throws(()=>presiones.makePressureRecords(context,lots,{}),/al menos una/);
+ assert.throws(()=>presiones.makePressureRecords(context,lots,{OTRO_LOTE:{ESTE:'10'}}),/al menos una/);
+});
+test('Las 46 presiones se sincronizan en las columnas originales y reintentar conserva las filas previas',()=>{
+ const b=backend(),{context,lots,values}=pressureFixture();
+ const legacy={...context,id:crypto.randomUUID(),kind:'PRESIONES',lote:lots[0],lado:'IZQUIERDO',presion:1.25};
+ const invoke=records=>b.call('sync',{token:b.owner.token,records:JSON.parse(JSON.stringify(records))});
+ let result=invoke([legacy]);assert(result.ok,result.error);
+ const records=presiones.makePressureRecords(context,lots,values);result=invoke(records);assert(result.ok,result.error);assert.equal(b.sheets.PRESIONES.values.length,48);
+ assert.deepEqual(b.sheets.PRESIONES.values[0],Array.from(model.HEADERS.PRESIONES));
+ assert.deepEqual(b.sheets.PRESIONES.values[1].slice(7),[lots[0],'IZQUIERDO',1.25]);
+ b.sheets.PRESIONES.values.slice(2).forEach((row,index)=>{
+  assert.equal(row.length,10);assert.deepEqual(row.slice(0,3),[2026,10,41]);assert.equal(row[3].toISOString().slice(0,10),context.date);
+  assert.deepEqual(row.slice(4),[context.lugar,context.fundo,context.modulo,records[index].lote,records[index].lado,records[index].presion]);assert(b.notes.PRESIONES[index+3].includes(records[index].id));
+ });
+ result=invoke(records);assert(result.ok,result.error);assert.equal(b.sheets.PRESIONES.values.length,48);
+ const conflict=invoke([{...records[0],id:crypto.randomUUID()},{...records.at(-1),presion:999}]);assert.equal(conflict.ok,false);assert.equal(b.sheets.PRESIONES.values.length,48);
+ const otherContext={...context,modulo:'M12'},otherLots=presiones.modulePressureLots(pressureFixture().rows,otherContext);
+ const second=presiones.makePressureRecords(otherContext,otherLots,{[otherLots[0]]:{OESTE:'3,25'}});result=invoke(second);assert(result.ok,result.error);assert.equal(b.sheets.PRESIONES.values.length,49);
+ assert.equal(b.sheets.PRESIONES.values[2][6],'M11');assert.deepEqual(b.sheets.PRESIONES.values[48].slice(6),['M12',otherLots[0],'OESTE',3.25]);
+ assert.equal(b.sheets.HUMEDADES.values.length,1);assert.equal(b.sheets.COMPACTACION.values.length,1);
+});
+test('Presiones muestra cada lote con Este y Oeste al costado y permite elegir el módulo sin un selector de lote',()=>{
+ const React=require('react'),{renderToStaticMarkup}=require('react-dom/server');
+ const Fields=tsModule('src/components/pressure-fields.tsx',name=>name==='@/lib/presiones'?presiones:require(name)).default;
+ const Locations=tsModule('src/components/location-fields.tsx',name=>name==='@/lib/locations'?locations:require(name)).default;
+ const {context,rows,lots}=pressureFixture();
+ const html=renderToStaticMarkup(React.createElement(Fields,{ready:true,lots,unit:'bar',values:{},onChange(){}}));
+ assert.equal((html.match(/<input /g)||[]).length,46);assert.equal((html.match(/<fieldset /g)||[]).length,23);assert(html.includes('<legend>Lote 39<small>M11T01-39</small></legend>'));assert(html.includes('<legend>Lote 40<small>M11T01-40</small></legend>'));
+ for(const lot of lots)for(const side of ['Este','Oeste']){
+  const input=html.match(new RegExp(`<input [^>]*aria-label="Presión final de ${lot}, lado ${side} \\(bar\\)"[^>]*>`))?.[0];
+  assert(input,`${lot} ${side}`);assert(input.includes('type="number"'));assert(input.includes('inputMode="decimal"'));assert(input.includes('min="0"'));assert(input.includes('step="any"'));assert(input.includes('value=""'));assert(!input.includes('required'));
+ }
+ const form=renderToStaticMarkup(React.createElement(Locations,{rows,values:{...context,lote:''},includeLot:false,onChange(){}}));
+ assert(form.includes('<select name="fundo"'));assert(form.includes('<select name="modulo"'));assert(!form.includes('<select name="lote"'));assert(form.includes('value="M12"'));
+ const hidden=renderToStaticMarkup(React.createElement(Fields,{ready:false,lots,values:{},onChange(){}}));assert(!hidden.includes('<input'));assert(hidden.includes('Selecciona fecha'));
+ const empty=renderToStaticMarkup(React.createElement(Fields,{ready:true,lots:[],values:{},onChange(){}}));assert(!empty.includes('<input'));assert(empty.includes('no tiene lotes'));
 });
 test('GeoJSON original: 254 identidades únicas y coincidencia de ubicación completa',()=>{
  const bytes=fs.readFileSync(path.join(ROOT,'data/lotes-mapa.geojson'));
