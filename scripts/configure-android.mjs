@@ -16,6 +16,12 @@ const manifest=new URL("android/app/src/main/AndroidManifest.xml",root);
 let xml=await readFile(manifest,"utf8");
 if(!xml.includes('android:scheme="riego"'))xml=xml.replace("</activity>",`    <intent-filter>\n                <action android:name="android.intent.action.VIEW" />\n                <category android:name="android.intent.category.DEFAULT" />\n                <category android:name="android.intent.category.BROWSABLE" />\n                <data android:scheme="riego" android:host="activate" />\n            </intent-filter>\n        </activity>`);
 xml=xml.replace(/android:allowBackup="true"/, 'android:allowBackup="false"');
+const activity=xml.match(/<activity\b[\s\S]*?>/)?.[0];
+if(!activity)throw new Error("No se encontró la actividad de Riego");
+const resizedActivity=activity.includes('android:windowSoftInputMode=')
+    ?activity.replace(/android:windowSoftInputMode="[^"]*"/, 'android:windowSoftInputMode="adjustResize"')
+    :activity.replace(/>$/, '\n            android:windowSoftInputMode="adjustResize">');
+xml=xml.replace(activity,resizedActivity);
 await writeFile(manifest,xml);
 // Reuse the already inspected droplet icon as the launcher icon.
 const res=new URL("android/app/src/main/res/",root);

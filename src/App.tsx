@@ -4,6 +4,7 @@ import FieldMap from "@/components/riego-map";
 import RiegoOnboarding,{type ActivationInput} from "@/components/riego-onboarding";
 import HumidityFields from "@/components/humidity-fields";
 import LocationFields from "@/components/location-fields";
+import Picker from "@/components/field-picker";
 import {changeLocation} from "@/lib/locations";
 import {Capacitor} from "@capacitor/core";
 import {App as NativeApp} from "@capacitor/app";
@@ -16,7 +17,6 @@ import {Droplets,Gauge,Layers,ChartNoAxesCombined,MapPinned,RefreshCw,Plus,Wifi,
 import {LineChart,Line,BarChart,Bar,XAxis,YAxis,CartesianGrid,Tooltip,Legend,ResponsiveContainer} from "recharts";
 import QRCode from "qrcode";
 import {Tabs,TabsList,TabsTrigger,TabsContent} from "@/components/ui/tabs";
-import {Select,SelectTrigger,SelectValue,SelectContent,SelectItem} from "@/components/ui/select";
 import {Dialog,DialogContent,DialogTitle,DialogDescription} from "@/components/ui/dialog";
 import {Table,TableHeader,TableBody,TableRow,TableHead,TableCell} from "@/components/ui/table";
 import {Empty,EmptyHeader,EmptyTitle,EmptyDescription} from "@/components/ui/empty";
@@ -29,7 +29,6 @@ import "leaflet/dist/leaflet.css";
 type InstallEvent=Event & {prompt:()=>Promise<void>;userChoice:Promise<{outcome:string}>};
 const COLORS=["#087a63","#3179ba","#cc8131","#805bc3","#c15168","#087f91"];
 const NAV=[{id:"HUMEDADES",label:"Humedades",icon:Droplets},{id:"COMPACTACION",label:"Compactación",icon:Layers},{id:"PRESIONES",label:"Presiones",icon:Gauge},{id:"graficas",label:"Gráficas",icon:ChartNoAxesCombined},{id:"mapa",label:"Mapa",icon:MapPinned}];
-function Picker({label,value,onChange,options}:{label:string;value:string;onChange:(v:string)=>void;options:{value:string;label:string}[]}){return <label className="field"><span>{label}</span><Select value={value} onValueChange={onChange}><SelectTrigger className="picker" aria-label={label}><SelectValue/></SelectTrigger><SelectContent>{options.map(o=><SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent></Select></label>;}
 function dateLabel(v:string){return v?v.split("-").reverse().join("/"):"—";}
 function num(v:number|null|undefined){return v==null?"—":v.toLocaleString("es-PE",{maximumFractionDigits:2});}
 function Blank({title,detail}:{title:string;detail:string}){return <Empty className="blank"><EmptyHeader><Inbox size={30} className="blank-icon"/><EmptyTitle>{title}</EmptyTitle><EmptyDescription>{detail}</EmptyDescription></EmptyHeader></Empty>;}

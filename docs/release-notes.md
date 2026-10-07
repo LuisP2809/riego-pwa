@@ -1,11 +1,11 @@
-# Riego 0.1.6
+# Riego 0.1.7
 
-Después de guardar una evaluación, los campos de Fundo, Módulo y Lote muestran listas completas para elegir otra ubicación. Las sugerencias anteriores se filtraban por el texto ya escrito y podían mostrar únicamente la selección actual.
+Sede y los filtros usan el selector del dispositivo, igual que Fundo, Módulo y Lote. Se elimina el menú de Sede que bloqueaba el desplazamiento de la página y aplicaba un margen lateral al abrirse.
 
-Puedes cambiar directamente a otro lote del mismo módulo. También puedes escoger otro módulo sin borrar primero el lote: al cambiar el módulo, el lote anterior se vacía y aparecen los lotes del nuevo módulo. La opción **Selecciona un lote** permite quitarlo; el módulo sigue disponible. Cambiar de fundo limpia módulo y lote, y cambiar de sede limpia los tres campos.
+El documento y el formulario declaran su ancho completo, las columnas de celular permiten reducirse dentro de la pantalla y las pestañas pueden partir textos largos. Los campos mantienen una fuente de al menos 16 px y el tamaño de texto permanece estable al enfocar una humedad. El desplazamiento de la página es vertical.
 
-Las listas usan el mapa original y las ubicaciones de las mediciones disponibles, incluyendo las guardadas en el dispositivo. La fecha se conserva al cambiar ubicación. Los registros guardados conservan sus datos originales. Humedades mantiene 20, 40 y 60 cm en Olmos y añade 80 cm en Motupe.
+La APK declara **adjustResize** para que Android ajuste el espacio disponible al mostrar el teclado. La PWA solicita **interactive-widget=resizes-content** para los navegadores compatibles. No se desactiva el zoom del navegador ni se modifican las mediciones guardadas.
 
-Instala Riego-0.1.6.apk sobre la versión actual, sin desinstalar ni borrar datos, para conservar el acceso y los registros. No se requiere volver a implementar Apps Script.
+Instala Riego-0.1.7.apk sobre la versión actual, sin desinstalar ni borrar datos, para conservar el acceso y los registros. No se requiere volver a implementar Apps Script. Humedades conserva 20, 40 y 60 cm en Olmos y añade 80 cm en Motupe.
 
-Se ejecutan 28 pruebas, incluida la selección de los 13 lotes de M08 y los módulos M07, M08 y M10 de CHOLOCAL con una evaluación previa, además de la compilación web y Android. Las pruebas de sincronización usan Apps Script simulado. El propietario confirmó pruebas de captura en su teléfono con la versión anterior; esta corrección de los selectores aún requiere su comprobación en el teléfono. La APK conserva la firma de desarrollo de las versiones anteriores.
+Se ejecutan 29 pruebas de selectores, captura, acceso, transporte, sincronización y mapa, además de la compilación web y Android. Se verifica que el selector de Sede muestre ambas sedes sin el menú anterior. Las pruebas de Apps Script son simuladas. La vista local no pudo abrirse en el navegador de revisión; el comportamiento visual del teclado en el celular requiere la comprobación del propietario. La APK conserva la firma de desarrollo de las versiones anteriores.

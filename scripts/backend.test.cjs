@@ -107,6 +107,15 @@ test('Los selectores muestran alternativas aunque ya haya lote elegido y permite
   assert(lot.includes('value="M08T01-15"'));assert(lot.includes('<option value=""'));assert(!html.includes('datalist'));
  }
 });
+test('Sede usa el selector del dispositivo y conserva ambas opciones sin un menú que bloquee la página',()=>{
+ const React=require('react'),{renderToStaticMarkup}=require('react-dom/server');
+ const Picker=tsModule('src/components/field-picker.tsx').default;
+ for(const value of ['OLMOS','MOTUPE']){
+  const html=renderToStaticMarkup(React.createElement(Picker,{label:'Sede',value,onChange(){},options:[{value:'OLMOS',label:'OLMOS'},{value:'MOTUPE',label:'MOTUPE'}]}));
+  assert(html.includes('<select aria-label="Sede"'));assert(html.includes('value="OLMOS"'));assert(html.includes('value="MOTUPE"'));
+  assert(html.includes(`value="${value}" selected=""`));assert(!html.includes('select-trigger'));assert(!html.includes('data-scroll-locked'));
+ }
+});
 test('GeoJSON original: 254 identidades únicas y coincidencia de ubicación completa',()=>{
  const bytes=fs.readFileSync(path.join(ROOT,'data/lotes-mapa.geojson'));
  const blobHash=crypto.createHash('sha1').update(Buffer.concat([Buffer.from(`blob ${bytes.length}\0`),bytes])).digest('hex');
