@@ -1,17 +1,11 @@
-Riego 0.1.3: respuesta de la conexión con Google en Android.
+# Riego 0.1.4
 
-- La APK procesa explícitamente las redirecciones de Apps Script y lee su resultado sin reenviar la clave de activación o el token a la URL de contenido.
-- La solicitud conserva el formato JSON y su método al pasar dentro de la misma implementación.
-- Los mensajes distinguen páginas de Google, respuestas vacías, formatos inesperados y publicación que exige iniciar sesión.
-- Se rechazan redirecciones ajenas al servicio de Riego y sesiones de activación incompletas.
+La conexión de RIEGO Y FERTILIZACION viene preparada en el APK. El acceso principal requiere tu nombre y la clave inicial; ya no necesitas pegar un enlace ni configurar Apps Script en la pantalla de entrada. La clave y los tokens no se incluyen en el APK ni en el repositorio.
 
-- Humedades, Compactación y Presiones, sin roles de evaluador o supervisor.
-- Acceso a dispositivos por código de un solo uso o QR, con vencimiento de 24 horas.
-- Formularios y datos locales para trabajar sin internet después de activar el celular.
-- Gráficas por fecha y lote, con filtros de lugar, fundo, profundidad y lado.
-- GeoJSON original de Fenología: 254 lotes de Olmos y Motupe.
-- Conexión de Apps Script publicada y encabezados de las tres hojas verificados. La activación y sincronización desde el celular quedan pendientes de comprobar con esta actualización.
+Antes de enviar la clave, la app comprueba la bienvenida de Riego mediante GET sin credenciales. Si falla esa comprobación, no envía la clave ni guarda un acceso. El principal usa la conexión preparada aunque quede guardado otro enlace de un intento anterior. Los códigos y QR del equipo conservan su conexión.
 
-Instala `Riego-0.1.3.apk` sobre la app existente, sin desinstalarla. Usa la misma firma que 0.1.1 y 0.1.2. Conserva el enlace de conexión y la clave inicial entregados al configurar Google; la clave se usa una vez y vence en 24 horas. Es un APK de prueba firmado con un certificado de desarrollo estable. La base de mapa necesita internet; los polígonos y las mediciones se conservan en el celular.
+La versión aparece desde la pantalla inicial. Un rechazo sin explicación muestra versión, operación e identificador RIEGO_REPLY_REJECTED; los fallos de comprobación muestran RIEGO_CONNECTION. Se mantiene el manejo explícito de las redirecciones de Google.
 
-Validación: 17 pruebas automáticas de datos, acceso y transporte HTTP, más compilación web y Android. Esta actualización corrige el manejo de la respuesta; su activación real en el celular requiere una prueba del propietario.
+Instala Riego-0.1.4.apk sobre la versión actual, sin desinstalar ni borrar datos. Usa la clave inicial entregada, mientras siga vigente y sin consumir. Tras entrar, Mis accesos permite generar códigos y QR.
+
+Se ejecutan 22 pruebas de acceso, transporte, sincronización y mapa, además de la compilación web y Android. Las pruebas de HTTP y Apps Script son simuladas. La activación en un teléfono físico está pendiente de confirmar. La APK conserva el certificado de desarrollo de las versiones anteriores; no es una distribución de Google Play.

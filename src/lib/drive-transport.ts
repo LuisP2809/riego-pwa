@@ -2,6 +2,7 @@ import type {HttpOptions,HttpResponse} from "@capacitor/core";
 import {endpointUrl} from "./access";
 
 type ReplyMeta={status:number;url?:string;contentType?:string};
+type NativeReply={data:unknown;meta:ReplyMeta};
 type NativeHttp={request:(options:HttpOptions)=>Promise<HttpResponse>};
 export class DriveProtocolError extends Error {}
 
@@ -26,6 +27,9 @@ export function parseDriveReply(raw:unknown,meta:ReplyMeta):unknown{
   if(!data||typeof data!=="object"||Array.isArray(data)||typeof (data as {ok?:unknown}).ok!=="boolean")throw new DriveProtocolError(`Google no confirmó la operación de Riego (${details(meta)}). Comprueba el enlace de conexión.`);
   return data;
 }
+export function parseDriveGreeting(raw:unknown,meta:ReplyMeta):void{
+  if(typeof raw!=="string"||!/^Riego: activa un dispositivo mediante un código o QR\./.test(raw.replace(/^\uFEFF/,"").trim()))throw new DriveProtocolError(`El enlace no respondió como la conexión de Riego (${details(meta)}). La clave inicial no se envió. [RIEGO_CONNECTION]`);
+}
 function redirectTarget(location:string,current:string,endpoint:string){
   let target:URL;try{target=new URL(location,current);}catch{throw new DriveProtocolError("Google devolvió una redirección sin un enlace válido.");}
   if(target.hostname==="accounts.google.com")throw new DriveProtocolError("Google pide iniciar sesión para acceder a la conexión. La implementación de Riego debe ejecutarse como su propietario y permitir Cualquier usuario.");
@@ -36,10 +40,10 @@ function redirectTarget(location:string,current:string,endpoint:string){
   if(!sameDeployment&&!content)throw new DriveProtocolError("La conexión devolvió una redirección fuera del servicio de Riego.");
   return {url:target.href,content};
 }
-export async function postDriveNative(endpoint:string,payload:Record<string,unknown>,http:NativeHttp):Promise<unknown>{
+async function nativeRequest(endpoint:string,http:NativeHttp,payload?:Record<string,unknown>):Promise<NativeReply>{
   const original=endpointUrl(endpoint);
-  let url=original,method="POST";
-  const body=JSON.stringify(payload);
+  let url=original,method=payload?"POST":"GET",readingResult=false;
+  const body=payload?JSON.stringify(payload):undefined;
   for(let hop=0;hop<5;hop++){
     const response=await http.request({url,method,headers:method==="POST"?{"Content-Type":"text/plain;charset=UTF-8","Accept":"application/json"}:{"Accept":"application/json"},...(method==="POST"?{data:body}:{}),connectTimeout:20000,readTimeout:45000,responseType:"text",disableRedirects:true});
     const headers=response.headers??{};
@@ -50,13 +54,21 @@ export async function postDriveNative(endpoint:string,payload:Record<string,unkn
       // Google serves the result at a one-time URL. Read it with GET, without
       // forwarding the activation code or session token. Never retry the POST
       // when reading that result fails: activation codes are single-use.
-      if(method==="GET"&&!next.content)throw new DriveProtocolError("Google redirigió la respuesta fuera de su servicio de contenido.");
-      url=next.url;if(next.content)method="GET";
+      if(readingResult&&!next.content)throw new DriveProtocolError("Google redirigió la respuesta fuera de su servicio de contenido.");
+      url=next.url;if(next.content){method="GET";readingResult=true;}
       continue;
     }
     const meta={status:response.status,url:response.url||url,contentType:header(headers,"content-type")};
     if(response.status<200||response.status>=300)throw new DriveProtocolError(`Google no pudo atender la conexión (${details(meta)}).`);
-    return parseDriveReply(response.data,meta);
+    return {data:response.data,meta};
   }
   throw new DriveProtocolError("Google redirigió la conexión demasiadas veces. Comprueba la publicación de Riego.");
+}
+export async function postDriveNative(endpoint:string,payload:Record<string,unknown>,http:NativeHttp):Promise<unknown>{
+  const response=await nativeRequest(endpoint,http,payload);
+  return parseDriveReply(response.data,response.meta);
+}
+export async function verifyDriveNative(endpoint:string,http:NativeHttp):Promise<void>{
+  const response=await nativeRequest(endpoint,http);
+  parseDriveGreeting(response.data,response.meta);
 }

@@ -3,7 +3,8 @@ import geoText from "../../data/lotes-mapa.geojson?raw";
 import {recordSchema,validateGeo,type Measurement,type GeoCollection} from "./riego-model";
 import {cached,cache,clearAccessState} from "./riego-offline";
 import {endpointUrl} from "./access";
-import {DriveProtocolError,parseDriveReply,postDriveNative} from "./drive-transport";
+import {DriveProtocolError,parseDriveReply,parseDriveGreeting,postDriveNative,verifyDriveNative} from "./drive-transport";
+import {RIEGO_ENDPOINT,APP_VERSION} from "./connection";
 
 export type Snapshot={records:Measurement[];geojson:GeoCollection;owner:boolean;sourceConnected:boolean;lastSync:string;units:Record<string,string>;scriptUrl?:string;profileName?:string};
 type Session={endpoint:string;token:string;owner:boolean;name?:string};
@@ -14,6 +15,19 @@ export async function configureEndpoint(value:string){await cache("endpoint",end
 async function localSnapshot():Promise<Snapshot>{
   const session=await cached<Session>("session"),old=await cached<Snapshot>("snapshot");
   return {records:old?.records??[],geojson:old?.geojson??MASTER,owner:session?.owner??false,profileName:session?.name??"",sourceConnected:Boolean(session),lastSync:old?.lastSync??"",units:old?.units??{},scriptUrl:session?.endpoint??await configuredEndpoint()};
+}
+async function verifyConnection(endpoint:string):Promise<void>{
+  try{
+    if(Capacitor.isNativePlatform())await verifyDriveNative(endpoint,CapacitorHttp);
+    else{
+      const r=await fetch(endpoint,{method:"GET",redirect:"follow",credentials:"omit",signal:AbortSignal.timeout(45000)});
+      if(!r.ok)throw new DriveProtocolError(`Google no pudo comprobar la conexión (HTTP ${r.status}). La clave inicial no se envió. [RIEGO_CONNECTION]`);
+      parseDriveGreeting(await r.text(),{status:r.status,url:r.url||endpoint,contentType:r.headers.get("content-type")??""});
+    }
+  }catch(e){
+    if(e instanceof DriveProtocolError)throw e;
+    throw new DriveProtocolError(`No se pudo comprobar la conexión de Riego. Revisa internet y vuelve a intentarlo; la clave inicial no se envió. [RIEGO_CONNECTION]`);
+  }
 }
 async function request<T>(endpoint:string,payload:Record<string,unknown>):Promise<T>{
   const url=endpointUrl(endpoint);let data:unknown;
@@ -28,7 +42,7 @@ async function request<T>(endpoint:string,payload:Record<string,unknown>):Promis
   }catch(e){if(e instanceof DriveProtocolError)throw e;throw new Error("No se pudo conectar con Drive. Comprueba internet y que Apps Script esté publicado para cualquier usuario. "+(e as Error).message);}
   const out=data as {ok?:boolean;error?:string;code?:string};
   if(out?.code==="ACCESS_DENIED")throw new AccessError(out.error??"Este dispositivo ya no tiene acceso.");
-  if(!out||out.ok!==true)throw new Error(out?.error??"Respuesta de Drive inválida.");
+  if(!out||out.ok!==true)throw new DriveProtocolError(typeof out?.error==="string"&&out.error.trim()?out.error:`La conexión rechazó la operación sin explicar el motivo. Riego ${APP_VERSION}, operación ${String(payload.action)}. [RIEGO_REPLY_REJECTED]`);
   return data as T;
 }
 async function remote<T>(action:string,body:Record<string,unknown>={}):Promise<T>{
@@ -52,8 +66,10 @@ export async function api<T>(action:string,body?:unknown):Promise<T>{
         if(name.length<2||name.length>80)throw new Error("Escribe tu nombre y apellidos.");
         if(!/^[A-F0-9]{64}$/.test(code))throw new Error("Usa la clave inicial de configuración de tu archivo para crear el acceso principal.");
       }else if(b.principal===false&&!/^[A-Z0-9]{12}$/.test(code))throw new Error("Ingresa el código de 12 caracteres que recibiste o escanea tu QR.");
-      const endpoint=await configuredEndpoint();if(!endpoint)throw new Error("Primero pega el enlace de conexión o escanea el QR que recibiste.");
+      const endpoint=b.principal===true?RIEGO_ENDPOINT:await configuredEndpoint();if(!endpoint)throw new Error("Primero pega el enlace de conexión o escanea el QR que recibiste.");
       const old=await cached<Snapshot>("snapshot");if(old?.records.some(r=>!r.synced)&&old.scriptUrl!==endpoint)throw new Error("Hay mediciones de otra conexión pendientes. Sincronízalas antes de cambiar de archivo.");
+      await verifyConnection(endpoint);
+      await configureEndpoint(endpoint);
       const r=await request<{ok:boolean;token:string;owner:boolean;name?:string;units:Record<string,string>}>(endpoint,{action:"activate",code,principal:b.principal,name});
       if(typeof r.token!=="string"||!/^[a-f0-9]{64}$/.test(r.token)||typeof r.owner!=="boolean")throw new DriveProtocolError("Google confirmó una respuesta de activación incompleta. No se guardó un acceso inválido en este dispositivo.");
       if(b.principal===true&&!r.owner)throw new AccessError("Este código no permite crear un acceso principal.");

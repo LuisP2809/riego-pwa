@@ -1,5 +1,6 @@
 import {useState, useEffect, type FormEvent} from "react";
 import {ArrowLeft, ArrowRight, Droplets, QrCode, UserRound} from "lucide-react";
+import {APP_VERSION,RIEGO_ENDPOINT,RIEGO_FILE_LABEL} from "@/lib/connection";
 
 export type ActivationInput = {endpoint: string; code: string; principal: boolean; name?: string};
 type Props = {
@@ -13,7 +14,6 @@ type Props = {
   onCode: (value: string) => void;
   onActivate: (input: ActivationInput) => Promise<void>;
   onScan: () => Promise<void>;
-  onShareSetup: () => void;
   onClearProblem: () => void;
 };
 
@@ -27,7 +27,7 @@ export default function RiegoOnboarding(props: Props) {
     event.preventDefault();
     if (screen === "profile") {setScreen("connection"); return;}
     if (screen === "member" && !props.endpoint && !props.code.includes("://")) setManualConnection(true);
-    void props.onActivate({endpoint: props.endpoint, code: props.code, principal: screen === "connection", ...(screen === "connection" ? {name: name.trim()} : {})});
+    void props.onActivate({endpoint: screen === "connection" ? RIEGO_ENDPOINT : props.endpoint, code: props.code, principal: screen === "connection", ...(screen === "connection" ? {name: name.trim()} : {})});
   }
   return <div className="activation"><main className="activation-card">
     {screen !== "welcome" && <button type="button" className="onboarding-back" disabled={props.busy} onClick={() => go(screen === "connection" ? "profile" : "welcome")}><ArrowLeft size={17}/>Volver</button>}
@@ -45,18 +45,10 @@ export default function RiegoOnboarding(props: Props) {
         <button className="primary full" disabled={name.trim().length < 2}>Continuar<ArrowRight size={18}/></button>
       </form>
     </> : screen === "connection" ? <>
-      <p className="eyebrow">PASO 2 DE 2</p><h1>Conecta tu archivo</h1>
-      <p><strong>{name.trim()}</strong>, vincula tu archivo de riego para terminar de crear tu acceso principal.</p>
-      <details className="connection-details setup-help"><summary>Cómo obtener estos datos</summary>
-        <ol className="setup-steps">
-          <li>Abre <a href="https://docs.google.com/spreadsheets/d/1JgvxAAqxLuPGjLkBoj6XpHl3f8n_8Q9ouavMOb8BRfA/edit" target="_blank" rel="noreferrer">tu archivo de riego</a> y entra a <strong>Extensiones → Apps Script</strong>.</li>
-          <li><button type="button" className="text-button" onClick={props.onShareSetup}>Descarga el archivo Riego_Drive.gs</button>, pega su contenido y ejecuta <strong>configurarRiego</strong>. Autoriza el acceso a tu archivo.</li>
-          <li>Copia la clave inicial que aparece en el registro de ejecución. Es privada, se usa una vez y vence en 24 horas.</li>
-          <li>En <strong>Implementar → Nueva implementación</strong>, elige <strong>Aplicación web</strong>, ejecutada como tú, con acceso <strong>Cualquier usuario</strong>. Copia el enlace que termina en <strong>/exec</strong>.</li>
-        </ol>
-      </details>
+      <p className="eyebrow">PASO 2 DE 2</p><h1>Activa tu acceso</h1>
+      <p><strong>{name.trim()}</strong>, la conexión de tu archivo ya está preparada. Pega tu clave inicial para crear tu acceso principal.</p>
+      <div className="prepared-connection"><strong>{RIEGO_FILE_LABEL}</strong><span>Humedades · Compactación · Presiones</span></div>
       <form onSubmit={submit} className="onboarding-fields">
-        <label className="field"><span>Enlace de conexión</span><input type="url" value={props.endpoint} onChange={event => props.onEndpoint(event.target.value)} placeholder="https://script.google.com/…/exec" autoComplete="off" required/></label>
         <label className="field"><span>Clave inicial de configuración</span><input type="password" value={props.code} onChange={event => props.onCode(event.target.value)} placeholder="Pega tu clave inicial" autoComplete="off" spellCheck={false} maxLength={80} required/><small>Esta clave crea tu acceso principal. Los códigos para tu equipo se generan después.</small></label>
         <button className="primary full" disabled={props.busy || !props.online}>{props.busy ? "Creando tu acceso…" : "Crear mi acceso y entrar"}</button>
       </form>
@@ -76,5 +68,6 @@ export default function RiegoOnboarding(props: Props) {
     </>}
     {!props.online && screen !== "welcome" && <p className="onboarding-note">La primera activación requiere internet.</p>}
     {props.problem && screen !== "welcome" && <p role="alert" className="error-note">{props.problem}</p>}
+    <footer className="onboarding-version">Riego {APP_VERSION}</footer>
   </main></div>;
 }

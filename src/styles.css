@@ -21,6 +21,8 @@ body{padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bot
 .onboarding-divider{display:flex;align-items:center;gap:12px;color:#758895;font-size:.8rem;margin:22px 0}
 .onboarding-divider::before,.onboarding-divider::after{content:"";flex:1;height:1px;background:#dce5ea}
 .activation-card .onboarding-note{margin:18px 0 0!important;font-size:.8rem;text-align:center}
+.prepared-connection{display:flex;flex-direction:column;gap:7px;padding:16px;margin:20px 0;background:#edf7f2;border:1px solid #c9e4d8;border-radius:9px;color:#08634e}.prepared-connection strong{font-size:.85rem;line-height:1.5}.prepared-connection span{font-size:.8rem;line-height:1.5;color:#506f64}
+.onboarding-version{padding-top:20px;text-align:center;font-size:.75rem;color:#7c8d96}
 .device-label{display:block;color:#587182;font-size:.8rem;margin-top:6px}
 
 .top-actions .access-trigger span{display:inline}

@@ -3,7 +3,10 @@ const ROOT=path.resolve(__dirname,'..');
 function tsModule(file,requireFn=require,extras={}){const exports={};const context={exports,module:{exports},require:requireFn,Date,Intl,URL,URLSearchParams,Math,Number,String,Set,Map,JSON,console,Error,...extras};vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(ROOT,file),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,context);return exports;}
 const model=tsModule('src/lib/riego-model.ts'),access=tsModule('src/lib/access.ts');
 const transport=tsModule('src/lib/drive-transport.ts',name=>name==='./access'?access:require(name));
+const connection=tsModule('src/lib/connection.ts',name=>name==='../../package.json'?require('../package.json'):require(name));
 const webReply=data=>({ok:true,status:200,headers:{get:()=> 'application/json'},text:async()=>JSON.stringify(data)});
+const greeting='Riego: activa un dispositivo mediante un código o QR. Las mediciones requieren autorización.';
+const greetingReply=()=>({ok:true,status:200,headers:{get:()=> 'text/plain'},text:async()=>greeting});
 const base={id:'11111111-1111-4111-8111-111111111111',kind:'HUMEDADES',date:'2026-10-06',lugar:'OLMOS',fundo:'CHALLAPAMPA',modulo:'M13',lote:'M13T04-87',prof:20,humedad:28};
 function backend(){
  const props={},notes={},formats={},sheets={};let reads=0,held=false;
@@ -86,11 +89,12 @@ test('Cliente rechaza un código compartido como principal y conserva el nombre 
   if(name==='./riego-model')return model;
   if(name==='./access')return access;
   if(name==='./drive-transport')return transport;
+  if(name==='./connection')return connection;
   if(name==='./riego-offline')return {cached:async k=>state.get(k),cache:async(k,v)=>state.set(k,v),clearAccessState:async()=>{state.delete('session');state.delete('activated');}};
   return require(name);
- },{AbortSignal,fetch:async(_url,options)=>{calls++;const p=JSON.parse(options.body);assert.equal(p.principal,true);assert.equal(p.name,'Luis Pineda');return webReply({ok:true,token:'a'.repeat(64),owner:true,name:p.name,units:{}});}});
+ },{AbortSignal,fetch:async(url,options)=>{calls++;assert.equal(url,connection.RIEGO_ENDPOINT);if(options.method==='GET')return greetingReply();const p=JSON.parse(options.body);assert.equal(p.principal,true);assert.equal(p.name,'Luis Pineda');return webReply({ok:true,token:'a'.repeat(64),owner:true,name:p.name,units:{}});}});
  await assert.rejects(()=>client.api('activate',{code:'ABCDEFGH2345',principal:true,name:'Luis Pineda'}));assert.equal(calls,0);assert(!state.has('session'));
- await client.api('activate',{code:'A'.repeat(64),principal:true,name:' Luis   Pineda '});assert.equal(calls,1);
+ await client.api('activate',{code:'A'.repeat(64),principal:true,name:' Luis   Pineda '});assert.equal(calls,2);
  const snapshot=await client.api('records');assert.equal(snapshot.owner,true);assert.equal(snapshot.profileName,'Luis Pineda');assert.equal(snapshot.geojson.features.length,254);
 });
 test('Sincronizar dos veces no duplica y los conflictos no agregan una fila',()=>{
@@ -124,6 +128,7 @@ test('Cliente conserva los registros de un lote confirmado cuando falla el lote 
   if(name==='./riego-model')return model;
   if(name==='./access')return access;
   if(name==='./drive-transport')return transport;
+  if(name==='./connection')return connection;
   if(name==='./riego-offline')return {cached:async k=>state.get(k),cache:async(k,v)=>state.set(k,v),clearAccessState:async()=>{state.delete('session');state.delete('activated');}};
   return require(name);
  },{AbortSignal,fetch:async(_url,options)=>{calls++;if(calls===2)throw new Error('Sin conexión');const p=JSON.parse(options.body);return webReply({ok:true,acknowledged:p.records.map(r=>r.id),records:p.records,units:{}});}});
@@ -183,21 +188,82 @@ test('Android limita los saltos de redirección y rechaza un Location ausente',a
  await assert.rejects(()=>transport.postDriveNative(endpoint,{action:'status'},{request:async()=>({status:302,headers:{},url:endpoint,data:''})}));
 });
 test('La activación nativa conserva nombre y sesión después de leer la redirección de Google',async()=>{
- const endpoint='https://script.google.com/macros/s/TEST/exec',state=new Map([['endpoint',endpoint]]),calls=[];
+ const endpoint=connection.RIEGO_ENDPOINT,state=new Map([['endpoint','https://script.google.com/macros/s/OTHER/exec']]),calls=[];
  const geo=JSON.parse(fs.readFileSync(path.join(ROOT,'data/lotes-mapa.geojson')));
  const client=tsModule('src/lib/api.ts',name=>{
   if(name==='@capacitor/core')return {Capacitor:{isNativePlatform:()=>true},CapacitorHttp:{request:async options=>{
    calls.push(options);
-   if(calls.length===1)return {status:302,headers:{Location:'https://script.googleusercontent.com/macros/echo?user_content_key=RESULT'},url:endpoint,data:''};
-   const p=JSON.parse(calls[0].data);assert.equal(p.action,'activate');assert.equal(p.principal,true);assert.equal(p.name,'Luis Pineda');
+   if(options.url===endpoint&&options.method==='GET')return {status:302,headers:{Location:'https://script.googleusercontent.com/macros/echo?user_content_key=GREETING'},url:endpoint,data:''};
+   if(options.url.endsWith('user_content_key=GREETING'))return {status:200,headers:{'Content-Type':'text/plain'},url:options.url,data:greeting};
+   if(options.method==='POST')return {status:302,headers:{Location:'https://script.googleusercontent.com/macros/echo?user_content_key=RESULT'},url:endpoint,data:''};
+   const p=JSON.parse(calls[2].data);assert.equal(p.action,'activate');assert.equal(p.principal,true);assert.equal(p.name,'Luis Pineda');
    return {status:200,headers:{'Content-Type':'application/json'},url:options.url,data:JSON.stringify({ok:true,token:'a'.repeat(64),owner:true,name:p.name,units:{}})};
   }}};
   if(name.endsWith('geojson?raw'))return {default:JSON.stringify(geo)};
   if(name==='./riego-model')return model;if(name==='./access')return access;if(name==='./drive-transport')return transport;
+  if(name==='./connection')return connection;
   if(name==='./riego-offline')return {cached:async k=>state.get(k),cache:async(k,v)=>state.set(k,v),clearAccessState:async()=>{state.delete('session');state.delete('activated');}};
   return require(name);
  });
  await client.api('activate',{code:'A'.repeat(64),principal:true,name:' Luis   Pineda '});
- assert.equal(calls.length,2);assert.equal(state.get('session').token,'a'.repeat(64));assert.equal(state.get('activated'),true);
+ assert.equal(calls.length,4);assert.deepEqual(calls.map(o=>o.method),['GET','GET','POST','GET']);assert(calls.filter(o=>o.method==='GET').every(o=>!('data' in o)));assert.equal(calls[2].url,endpoint);assert.equal(state.get('endpoint'),endpoint);assert.equal(state.get('session').token,'a'.repeat(64));assert.equal(state.get('activated'),true);
  const snapshot=await client.api('records');assert.equal(snapshot.owner,true);assert.equal(snapshot.profileName,'Luis Pineda');assert.equal(snapshot.geojson.features.length,254);
+});
+
+test('Comprobar la conexión usa GET sin clave y permite una redirección dentro de la implementación',async()=>{
+ const endpoint='https://script.google.com/macros/s/TEST/exec',calls=[];
+ await transport.verifyDriveNative(endpoint,{request:async options=>{
+  calls.push(options);
+  if(calls.length===1)return {status:302,headers:{Location:'/macros/u/0/s/TEST/exec'},url:endpoint,data:''};
+  if(calls.length===2)return {status:302,headers:{Location:'https://script.googleusercontent.com/macros/echo?user_content_key=GREETING'},url:options.url,data:''};
+  return {status:200,headers:{'Content-Type':'text/plain'},url:options.url,data:'\uFEFF'+greeting};
+ }});
+ assert.equal(calls.length,3);assert(calls.every(o=>o.method==='GET'&&!('data' in o)));
+});
+
+function activationClient(nativeRequest,state=new Map()){
+ const geo=JSON.parse(fs.readFileSync(path.join(ROOT,'data/lotes-mapa.geojson')));
+ return tsModule('src/lib/api.ts',name=>{
+  if(name==='@capacitor/core')return {Capacitor:{isNativePlatform:()=>true},CapacitorHttp:{request:nativeRequest}};
+  if(name.endsWith('geojson?raw'))return {default:JSON.stringify(geo)};
+  if(name==='./riego-model')return model;if(name==='./access')return access;if(name==='./drive-transport')return transport;if(name==='./connection')return connection;
+  if(name==='./riego-offline')return {cached:async k=>state.get(k),cache:async(k,v)=>state.set(k,v),clearAccessState:async()=>{state.delete('session');state.delete('activated');}};
+  return require(name);
+ });
+}
+test('La activación no envía ni consume una clave cuando la conexión responde con otro servicio',async()=>{
+ const state=new Map(),calls=[];
+ const client=activationClient(async options=>{calls.push(options);return {status:200,headers:{'Content-Type':'application/json'},url:options.url,data:{ok:false,private:'PRIVATE_TOKEN'}};},state);
+ await assert.rejects(()=>client.api('activate',{principal:true,name:'Luis Pineda',code:'A'.repeat(64)}),e=>e.message.includes('[RIEGO_CONNECTION]')&&!e.message.includes('PRIVATE_TOKEN'));
+ assert.equal(calls.length,1);assert.equal(calls[0].method,'GET');assert.equal(calls[0].url,connection.RIEGO_ENDPOINT);assert(!('data' in calls[0]));assert(!state.has('session'));assert(!state.has('activated'));
+});
+test('Una comprobación de red fallida tampoco envía la clave ni guarda una sesión',async()=>{
+ const state=new Map(),calls=[];
+ const client=activationClient(async options=>{calls.push(options);throw new Error('Network error');},state);
+ await assert.rejects(()=>client.api('activate',{principal:true,name:'Luis Pineda',code:'A'.repeat(64)}),/RIEGO_CONNECTION/);
+ assert.equal(calls.length,1);assert.equal(calls[0].method,'GET');assert(!state.has('session'));
+});
+test('Un rechazo sin explicación muestra versión y operación sin exponer la clave',async()=>{
+ const state=new Map(),calls=[];
+ const client=activationClient(async options=>{calls.push(options);return {status:200,headers:{'Content-Type':options.method==='GET'?'text/plain':'application/json'},url:options.url,data:options.method==='GET'?greeting:{ok:false}};},state);
+ await assert.rejects(()=>client.api('activate',{principal:true,name:'Luis Pineda',code:'A'.repeat(64)}),e=>e.message.includes(connection.APP_VERSION)&&e.message.includes('activate')&&e.message.includes('[RIEGO_REPLY_REJECTED]')&&!e.message.includes('A'.repeat(64)));
+ assert.equal(calls.length,2);assert.equal(calls[1].method,'POST');assert(!state.has('session'));
+});
+
+test('Cliente y Apps Script: verificar, activar el principal y dar acceso a un segundo dispositivo',async()=>{
+ const b=backend(),initial=b.context.crearAccesoPropietario(),ownerState=new Map(),memberState=new Map([['endpoint',connection.RIEGO_ENDPOINT]]),calls=[];
+ const http=async options=>{
+  calls.push(options);
+  if(options.method==='GET')return {status:200,headers:{'Content-Type':'text/plain'},url:options.url,data:b.context.doGet().text};
+  return {status:200,headers:{'Content-Type':'application/json'},url:options.url,data:b.context.doPost({postData:{contents:options.data}}).text};
+ };
+ const principal=activationClient(http,ownerState);
+ await principal.api('activate',{principal:true,name:'Luis Pineda',code:initial});
+ assert.equal(ownerState.get('session').owner,true);assert.equal(ownerState.get('session').name,'Luis Pineda');assert(!b.props.RIEGO_INITIAL_HASH);
+ const invite=await principal.api('invite');
+ const member=activationClient(http,memberState);
+ await member.api('activate',{principal:false,code:invite.code});
+ assert.equal(memberState.get('session').owner,false);assert.equal((await member.api('status')).ok,true);
+ await assert.rejects(()=>member.api('invite'),/no puede entregar accesos/);
+ assert.equal(calls.filter(o=>o.method==='GET').length,2);assert(calls.filter(o=>o.method==='GET').every(o=>!('data' in o)));
 });

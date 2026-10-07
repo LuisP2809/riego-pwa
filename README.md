@@ -4,7 +4,7 @@ Aplicación Android y PWA para capturar y consultar **Humedades, Compactación y
 
 ## Descargar e instalar
 
-Abre **Releases** de este repositorio y descarga el archivo `Riego-0.1.3.apk`. Android puede pedir que permitas la instalación desde el navegador o el gestor de archivos. El identificador de la app es `pe.riego.campo`, independiente de Fenología y Fitosanidad.
+Abre **Releases** de este repositorio y descarga el archivo `Riego-0.1.4.apk`. Android puede pedir que permitas la instalación desde el navegador o el gestor de archivos. El identificador de la app es `pe.riego.campo`, independiente de Fenología y Fitosanidad.
 
 El workflow **APK descargable de Riego** compila cada cambio de `main`, guarda el APK en Actions y lo publica en Releases. Para publicar otra versión, aumenta `version` en `package.json`. No sobrescribe versiones ya publicadas con un cambio de código distinto.
 
@@ -12,11 +12,11 @@ El APK inicial es una compilación de prueba. El certificado `scripts/android-de
 
 ## Primero, tu acceso principal
 
-La pantalla inicial destaca **Crear mi acceso principal**. Primero escribes tu nombre y apellidos; luego vinculas el archivo para confirmar que ese dispositivo es tuyo. Después de entrar, **Mis accesos** permite generar los códigos y QR del equipo. Los demás eligen **Tengo un código o QR** en una pantalla separada. Sus códigos no crean otro acceso principal.
+La pantalla inicial destaca **Crear mi acceso principal**. Primero escribes tu nombre y apellidos; luego ingresas la clave inicial. La conexión pública de **RIEGO Y FERTILIZACION** ya viene preparada en el APK, sin incluir claves ni tokens. Después de entrar, **Mis accesos** permite generar los códigos y QR del equipo. Los demás eligen **Tengo un código o QR** en una pantalla separada. Sus códigos no crean otro acceso principal.
 
 Instala las actualizaciones sobre la app existente para conservar su acceso y los registros. Si el dispositivo ya está activado, no necesitas repetir la configuración.
 
-La versión 0.1.3 procesa explícitamente las redirecciones de Apps Script en Android. Envía la solicitud al enlace de la implementación y lee el resultado de Google con GET sin reenviar el código o el token a la URL de contenido. Ante una página web, una respuesta vacía o un formato distinto, muestra un mensaje específico; no guarda una sesión incompleta.
+La versión 0.1.4 integra la conexión del archivo en `src/lib/connection.ts` y muestra la versión también antes de activar. Comprueba con GET la bienvenida de Riego antes de enviar una clave: si el enlace devuelve otro servicio o falla la red, no envía la clave ni guarda una sesión. El dispositivo principal usa la conexión preparada aunque haya un enlace distinto guardado de un intento anterior. El código y la firma de cada actualización se mantienen independientes de las credenciales. También procesa explícitamente las redirecciones de Apps Script en Android. Envía la solicitud al enlace de la implementación y lee el resultado de Google con GET sin reenviar el código o el token a la URL de contenido. Ante una página web, una respuesta vacía o un formato distinto, muestra un mensaje específico; no guarda una sesión incompleta. Un rechazo sin explicación identifica la versión y la operación mediante `RIEGO_REPLY_REJECTED`; los fallos de comprobación se identifican mediante `RIEGO_CONNECTION`. Los mensajes no copian cuerpos de respuestas, claves ni tokens.
 
 ## Conectar tu archivo de Drive
 
@@ -26,13 +26,13 @@ Archivo identificado del propietario: `1JgvxAAqxLuPGjLkBoj6XpHl3f8n_8Q9ouavMOb8B
 2. Pega el contenido completo de **apps-script/Riego.gs**. Este script es independiente del puente usado por la primera PWA privada; no pegues ambos scripts juntos.
 3. Ejecuta **configurarRiego** y autoriza el acceso al archivo. El registro de ejecución muestra un **código inicial de 64 caracteres** para tu dispositivo principal. Se usa una vez y vence en 24 horas. Consérvalo en privado.
 4. En **Implementar → Nueva implementación**, elige **Aplicación web**, ejecutada **como tú**, con acceso **Cualquier usuario**. Copia el enlace que termina en **/exec**. Cada operación de datos se valida con el acceso del dispositivo.
-5. Instala el APK y pulsa **Crear mi acceso principal**. Escribe tu nombre y apellidos y pulsa **Continuar**. En el segundo paso, pega el enlace `/exec` en **Enlace de conexión**, pega el código inicial en **Clave inicial de configuración** y pulsa **Crear mi acceso y entrar**.
+5. Instala el APK y pulsa **Crear mi acceso principal**. Escribe tu nombre y apellidos y pulsa **Continuar**. En el segundo paso, la conexión al archivo ya está preparada: pega el código inicial en **Clave inicial de configuración** y pulsa **Crear mi acceso y entrar**. Si vuelves a implementar el script con otro enlace, actualiza `RIEGO_ENDPOINT` en `src/lib/connection.ts` y compila una nueva versión del APK.
 6. Abre **Mis accesos → Unidades y archivo de Drive**, indica las unidades de profundidad, compactación y presión y guarda. No se han supuesto unidades para esas columnas.
 7. En **Mis accesos**, pulsa **Generar código y QR**. En el otro celular instala el mismo APK, elige **Tengo un código o QR** y usa **Escanear mi QR**. El QR incluye la conexión y un código de 12 caracteres para un único dispositivo; también puedes pegar el **acceso completo** compartido o ingresar manualmente el enlace y el código. El código vence en 24 horas.
 
 Si pierdes el acceso del dispositivo principal, ejecuta **crearAccesoPropietario** en Apps Script para emitir un nuevo código inicial. Esto requiere acceso al proyecto de Google; la app no puede adjudicarse ese acceso por sí sola.
 
-La conexión del propietario fue publicada el 7 de octubre de 2026 y la función de configuración verificó los encabezados de las tres hojas. El enlace y la clave inicial se entregan al propietario; la clave no se incluye en el repositorio. La activación y sincronización desde un celular físico están pendientes de validar después de un fallo de respuesta reportado en 0.1.2.
+La conexión del propietario fue publicada el 7 de octubre de 2026 y la función de configuración verificó los encabezados de las tres hojas. El enlace público se integra en el APK; la clave inicial se entrega al propietario y no se incluye en el repositorio. El 7 de octubre se verificó en las propiedades de Google que la clave entregada seguía vigente y sin consumir. La captura recibida confirmó el aviso genérico, pero no permitió leer el enlace completo ni confirmar la versión instalada. La activación y sincronización desde un celular físico siguen pendientes de validar.
 
 ## Columnas originales
 
@@ -73,6 +73,6 @@ npm run apk:debug
 
 El proyecto Android se genera desde Capacitor y queda fuera de Git. `scripts/configure-android.mjs` aplica el nombre, ID, versión, Android mínimo 8, enlaces `riego://activate`, icono y desactiva la copia de seguridad automática de datos de dispositivos.
 
-`npm test` verifica fechas y semana ISO, humedad cero y límites, identidad exacta del GeoJSON, QR y restricciones del servidor, acceso sin token, códigos de un uso, vencimiento, permisos de configuración, revocación, reintentos sin duplicar, conflictos sin filas parciales, las tres hojas, porcentajes, notas y conservación de lotes confirmados al interrumpirse la sincronización. También prueba el envío nativo, las redirecciones de Google, el rechazo de otros destinos, los errores de formato, la lectura fallida sin reenviar la activación y la conservación de la sesión nativa. Las pruebas de Apps Script y HTTP son simuladas, sin leer ni escribir el archivo de Google.
+`npm test` verifica fechas y semana ISO, humedad cero y límites, identidad exacta del GeoJSON, QR y restricciones del servidor, acceso sin token, códigos de un uso, vencimiento, permisos de configuración, revocación, reintentos sin duplicar, conflictos sin filas parciales, las tres hojas, porcentajes, notas y conservación de lotes confirmados al interrumpirse la sincronización. También prueba el envío nativo, las redirecciones de Google, el rechazo de otros destinos, los errores de formato, la lectura fallida sin reenviar la activación y la conservación de la sesión nativa. Las pruebas también verifican que la comprobación use GET sin credenciales, que un servicio incorrecto o un fallo de red detenga la activación, que un enlace previo no cambie el destino del principal y que cliente y Apps Script simulado permitan activar al principal y entregar acceso a un segundo dispositivo. Las pruebas de Apps Script y HTTP son simuladas, sin leer ni escribir el archivo de Google.
 
 La conexión se publicó y sus encabezados se comprobaron en Google. La respuesta HTTP real no se pudo verificar desde este navegador porque bloqueó la apertura del enlace de la implementación. La activación, sincronización y cámara en un celular físico requieren la prueba del propietario con la nueva APK.
