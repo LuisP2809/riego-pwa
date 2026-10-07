@@ -4,6 +4,7 @@ function tsModule(file,requireFn=require,extras={}){const exports={};const conte
 const model=tsModule('src/lib/riego-model.ts'),access=tsModule('src/lib/access.ts');
 const humedades=tsModule('src/lib/humedades.ts',name=>name==='./riego-model'?model:require(name),{crypto});
 const compactacion=tsModule('src/lib/compactacion.ts',name=>name==='./riego-model'?model:require(name),{crypto});
+const water=tsModule('src/lib/calidad-agua.ts',name=>name==='./riego-model'?model:require(name),{crypto});
 const locations=tsModule('src/lib/locations.ts',name=>name==='./riego-model'?model:require(name));
 const presiones=tsModule('src/lib/presiones.ts',name=>name==='./riego-model'?model:name==='./locations'?locations:require(name),{crypto});
 const analytics=tsModule('src/lib/riego-analytics.ts',name=>name==='./riego-model'?model:name==='./humedades'?humedades:require(name));
@@ -28,7 +29,7 @@ function backend(){
   };}};
  }
  const properties={setProperty:(k,v)=>{props[k]=v;return properties;},getProperty:k=>props[k]??null,deleteProperty:k=>{delete props[k];return properties;},getProperties:()=>({...props})};
- const book={getSheetByName:k=>sheets[k],getSpreadsheetTimeZone:()=> 'America/Lima',getId:()=> '1JgvxAAqxLuPGjLkBoj6XpHl3f8n_8Q9ouavMOb8BRfA'};
+ const book={getSheetByName:name=>sheets[Object.keys(model.SHEET_NAMES).find(kind=>model.SHEET_NAMES[kind]===name)],getSpreadsheetTimeZone:()=> 'America/Lima',getId:()=> '1JgvxAAqxLuPGjLkBoj6XpHl3f8n_8Q9ouavMOb8BRfA'};
  const context={console:{log(){}},Date,Math,JSON,Number,String,Array,isFinite,isNaN,PropertiesService:{getScriptProperties:()=>properties},SpreadsheetApp:{openById:id=>{assert.equal(id,book.getId());reads++;return book;},flush(){}},Utilities:{getUuid:()=>crypto.randomUUID(),DigestAlgorithm:{SHA_256:'sha256'},Charset:{UTF_8:'utf8'},computeDigest:(_algorithm,text)=>[...crypto.createHash('sha256').update(String(text)).digest()],formatDate:d=>d.toISOString().slice(0,10)},LockService:{getScriptLock:()=>({waitLock(){assert(!held);held=true;},hasLock:()=>held,releaseLock(){held=false;}})},ContentService:{MimeType:{JSON:'json'},createTextOutput:text=>({text,setMimeType(){return this;}})}};
  vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(ROOT,'apps-script/Riego.gs'),'utf8'),context);
  context.configurarRiego();const initial=context.crearAccesoPropietario();
@@ -577,4 +578,106 @@ test('Cliente y Apps Script: verificar, activar el principal y dar acceso a un s
  assert.equal(memberState.get('session').owner,false);assert.equal((await member.api('status')).ok,true);
  await assert.rejects(()=>member.api('invite'),/no puede entregar accesos/);
  assert.equal(calls.filter(o=>o.method==='GET').length,2);assert(calls.filter(o=>o.method==='GET').every(o=>!('data' in o)));
+});
+
+const waterContext={date:'2026-10-07',lugar:'OLMOS',filtrado:'FILTRADO PESQUERA'};
+const waterValues={ph:'7,2',ce:'1.35',na:'0',ca:'24,75'};
+test('Calidad de agua limita los filtrados por sede y cambiar de sede limpia el filtrado anterior',()=>{
+ assert.deepEqual(Array.from(water.waterFilters('OLMOS')),['FILTRADO PESQUERA','FILTRADO CHOLOCAL']);
+ assert.deepEqual(Array.from(water.waterFilters('MOTUPE')),['FRANCO','CHOLOQUE','PALACIOS','CHOC CHOC','ANDINA']);
+ assert.equal(water.waterFilters('OTRA').length,0);
+ const changed=water.changeWaterContext(waterContext,'lugar','MOTUPE');
+ assert.equal(changed.filtrado,'');assert.equal(changed.date,waterContext.date);assert.equal(waterContext.filtrado,'FILTRADO PESQUERA');
+ assert.throws(()=>water.makeWaterQualityRecord({...changed,filtrado:'FILTRADO CHOLOCAL'},waterValues),/filtrado de la sede/);
+});
+test('Una evaluación de agua requiere los cuatro valores y admite cero y decimales sin inventar lotes',()=>{
+ const r=water.makeWaterQualityRecord(waterContext,waterValues);
+ assert.equal(r.kind,'CALIDAD_AGUA');assert(model.recordSchema.safeParse(r).success);
+ assert.equal(r.ph,7.2);assert.equal(r.ce,1.35);assert.equal(r.na,0);assert.equal(r.ca,24.75);
+ assert.equal(r.fundo,'');assert.equal(r.modulo,'');assert.equal(r.lote,'');
+ for(const key of ['ph','ce','na','ca'])for(const value of ['', ' ', '-1', 'NaN', 'Infinity', 'abc'])assert.throws(()=>water.makeWaterQualityRecord(waterContext,{...waterValues,[key]:value}));
+ for(const key of ['date','lugar','filtrado'])assert.throws(()=>water.makeWaterQualityRecord({...waterContext,[key]:''},waterValues));
+ assert.throws(()=>water.makeWaterQualityRecord({...waterContext,date:'2026-02-30'},waterValues));
+ for(const key of ['ph','ce','na','ca'])assert(!model.recordSchema.safeParse({...r,[key]:Infinity}).success);
+ const empty=water.emptyWaterValues();empty.ph='8';assert.equal(water.emptyWaterValues().ph,'');
+ for(const key of ['fundo','modulo','lote'])assert(!model.recordSchema.safeParse({...base,[key]:''}).success);
+});
+test('Los siete filtrados se guardan en CALIDAD AGUA con diez columnas, sin duplicar al reintentar',()=>{
+ const b=backend(),records=[];
+ for(const lugar of ['OLMOS','MOTUPE'])for(const filtrado of water.waterFilters(lugar))records.push(water.makeWaterQualityRecord({...waterContext,lugar,filtrado},waterValues));
+ const sync=()=>b.call('sync',{token:b.owner.token,records,includeWaterQuality:true});
+ let result=sync();assert(result.ok,result.error);assert.equal(result.records.length,7);assert.equal(result.capabilities.waterQuality,true);
+ const sheet=b.sheets.CALIDAD_AGUA;assert.equal(sheet.values.length,8);
+ assert.deepEqual(sheet.values[0],['AÑO','MES','SEMANA','FECHA','LUGAR','FILTRADO','PH','C.E','Na','Ca']);
+ records.forEach((r,index)=>{
+  const v=sheet.values[index+1];assert.equal(v.length,10);assert.deepEqual(v.slice(0,3),[2026,10,41]);
+  assert.equal(v[3].toISOString(),'2026-10-07T17:00:00.000Z');assert.equal(b.formats.CALIDAD_AGUA[`${index+2},4`],'dd/mm/yyyy');
+  assert.deepEqual(v.slice(4),[r.lugar,r.filtrado,7.2,1.35,0,24.75]);assert(b.notes.CALIDAD_AGUA[index+2].includes(r.id));
+  const returned=result.records.find(row=>row.id===r.id);assert(model.recordSchema.safeParse(returned).success);assert.equal(returned.ca,24.75);
+ });
+ result=sync();assert(result.ok,result.error);assert.equal(sheet.values.length,8);
+ const extra={...records[0],id:crypto.randomUUID()};
+ assert.equal(b.call('sync',{token:b.owner.token,records:[extra,{...records[0],ca:99}],includeWaterQuality:true}).ok,false);assert.equal(sheet.values.length,8);
+});
+test('Agua rechaza filtrados de otra sede y registros incompletos antes de escribir cualquier fila',()=>{
+ const b=backend(),r=water.makeWaterQualityRecord(waterContext,waterValues);
+ for(const invalid of [{...r,lugar:'MOTUPE'},{...r,filtrado:'OTRO'},{...r,ca:undefined},{...r,na:-1}]){
+  const result=b.call('sync',{token:b.owner.token,records:[base,invalid],includeWaterQuality:true});
+  assert.equal(result.ok,false);assert.equal(b.sheets.HUMEDADES.values.length,1);assert.equal(b.sheets.CALIDAD_AGUA.values.length,1);
+ }
+ const before=JSON.stringify(b.props);b.context.verificarCalidadAgua();assert.equal(JSON.stringify(b.props),before);
+ assert.equal(b.call('sync',{records:[r],includeWaterQuality:true}).code,'ACCESS_DENIED');
+});
+test('La conexión conserva las tres hojas anteriores y reserva el agua para APK que la soliciten',()=>{
+ const b=backend(),r=water.makeWaterQualityRecord(waterContext,waterValues),{humedad,prof,...common}=base;
+ const records=[base,{...common,id:crypto.randomUUID(),kind:'COMPACTACION',puntos:'P1',m1:0,m2:2,m3:3},{...common,id:crypto.randomUUID(),kind:'PRESIONES',lado:'ESTE',presion:0},r];
+ const result=b.call('sync',{token:b.owner.token,records,includeWaterQuality:true});assert(result.ok,result.error);assert.equal(result.records.length,4);
+ const legacy=b.call('sync',{token:b.owner.token,records:[]});assert(legacy.ok,legacy.error);assert.equal(legacy.records.length,3);assert(!legacy.records.some(row=>row.kind==='CALIDAD_AGUA'));
+ assert.equal(b.sheets.HUMEDADES.values[1].length,10);assert.equal(b.sheets.COMPACTACION.values[1].length,12);assert.equal(b.sheets.PRESIONES.values[1].length,10);
+ assert.equal(b.call('status',{token:b.owner.token}).capabilities.waterQuality,true);
+});
+test('El formulario de agua muestra solo los filtrados de su sede y cuatro casillas debajo',()=>{
+ const React=require('react'),{renderToStaticMarkup}=require('react-dom/server'),utils=tsModule('src/lib/utils.ts');
+ const table=tsModule('src/components/ui/table.tsx',name=>name==='@/lib/utils'?utils:require(name));
+ const picker=tsModule('src/components/field-picker.tsx');
+ const Fields=tsModule('src/components/water-quality-capture.tsx',name=>name==='@/lib/calidad-agua'?water:name==='@/lib/riego-model'?model:name==='@/components/field-picker'?picker:name==='@/components/ui/table'?table:require(name));
+ for(const lugar of ['OLMOS','MOTUPE']){
+  const html=renderToStaticMarkup(React.createElement(Fields.WaterLocationFields,{context:{...waterContext,lugar,filtrado:''},onChange(){}}));
+  const list=html.match(/<select aria-label="Filtrado"[^>]*>(.*?)<\/select>/)[0];
+  assert.equal((list.match(/<option /g)||[]).length,water.waterFilters(lugar).length+1);
+  for(const filtrado of water.waterFilters(lugar))assert(list.includes(`value="${filtrado}"`));
+  for(const filtrado of water.waterFilters(lugar==='OLMOS'?'MOTUPE':'OLMOS'))assert(!list.includes(`value="${filtrado}"`));
+  for(const label of ['Fundo','Módulo','Lote'])assert(!html.includes(`aria-label="${label}"`));
+ }
+ const render=ready=>renderToStaticMarkup(React.createElement(Fields.WaterReadingFields,{ready,values:waterValues,onChange(){}}));
+ const html=render(true);assert.equal((html.match(/<input /g)||[]).length,4);
+ for(const label of ['pH','CE','Na','Ca'])assert(html.includes(`aria-label="${label} del agua"`));
+ assert(!render(false).includes('<input'));assert(render(false).includes('Selecciona fecha, sede y filtrado'));
+ const r=water.makeWaterQualityRecord(waterContext,waterValues);
+ const history=renderToStaticMarkup(React.createElement(Fields.default,{records:[{...r,synced:true}],busy:false,online:true,onSave:async()=>{}}));
+ assert(history.includes('FILTRADO PESQUERA'));assert(history.includes('07/10/2026'));assert(history.includes('>0</td>'));assert(history.includes('>Na</th>'));assert(history.includes('>Ca</th>'));
+});
+test('APK Android sincroniza el agua con la conexión nueva y conserva el registro entre reintentos',async()=>{
+ const b=backend(),endpoint=connection.RIEGO_ENDPOINT,state=new Map([['session',{endpoint,token:b.owner.token,owner:true}]]),calls=[];
+ const client=activationClient(async options=>{const p=JSON.parse(options.data);calls.push(p);return {status:200,headers:{'Content-Type':'application/json'},url:options.url,data:b.call(p.action,p)};},state);
+ const r=water.makeWaterQualityRecord(waterContext,waterValues);await client.api('save',{records:[r]});
+ assert.equal((await client.api('records')).records[0].synced,false);
+ let result=await client.api('sync');assert.equal(result.written,1);assert.equal(result.records[0].synced,true);assert.equal(result.records[0].na,0);
+ assert.equal(calls[0].action,'status');assert(!('records' in calls[0]));assert.equal(calls[1].includeWaterQuality,true);
+ result=await client.api('sync');assert.equal(result.written,0);assert.equal(b.sheets.CALIDAD_AGUA.values.length,2);
+});
+test('Con la conexión anterior el agua queda pendiente, las otras mediciones sincronizan y actualizar permite reintentar',async()=>{
+ const b=backend(),endpoint=connection.RIEGO_ENDPOINT,state=new Map([['session',{endpoint,token:b.owner.token,owner:true}]]),calls=[];let updated=false;
+ const client=activationClient(async options=>{
+  const p=JSON.parse(options.data);calls.push(p);
+  if(!updated&&p.action==='sync')assert(p.records.every(row=>row.kind!=='CALIDAD_AGUA'));
+  const data=b.call(p.action,updated?p:{...p,includeWaterQuality:false});if(!updated)delete data.capabilities;
+  return {status:200,headers:{'Content-Type':'application/json'},url:options.url,data};
+ },state);
+ const r=water.makeWaterQualityRecord(waterContext,waterValues);await client.api('save',{records:[base,r]});
+ await assert.rejects(()=>client.api('sync'),/Calidad de agua sigue guardada/);
+ let snapshot=await client.api('records');assert.equal(snapshot.records.find(row=>row.id===base.id).synced,true);assert.equal(snapshot.records.find(row=>row.id===r.id).synced,false);
+ assert.equal(b.sheets.HUMEDADES.values.length,2);assert.equal(b.sheets.CALIDAD_AGUA.values.length,1);
+ updated=true;const result=await client.api('sync');assert.equal(result.written,1);assert.equal(result.records.length,2);assert(result.records.every(row=>row.synced));
+ assert.equal(b.sheets.HUMEDADES.values.length,2);assert.equal(b.sheets.CALIDAD_AGUA.values.length,2);assert.equal(calls.filter(p=>p.action==='status').length,2);
 });

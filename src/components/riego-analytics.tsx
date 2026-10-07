@@ -26,7 +26,7 @@ export function RankingValues({rows,unit}:{rows:RankingRow[];unit:string}){
 }
 
 export default function RiegoAnalytics({records,geojson,units,kind,onKindChange,filters,onFiltersChange}:Props){
-  const locations=useMemo(()=>[...(geojson?.features.map(featureLocation)??[]),...records.map(record=>({lugar:record.lugar,fundo:record.fundo,modulo:record.modulo,lote:record.lote}))],[geojson,records]);
+  const locations=useMemo(()=>[...(geojson?.features.map(featureLocation)??[]),...records.filter(record=>record.kind!=="CALIDAD_AGUA").map(record=>({lugar:record.lugar,fundo:record.fundo,modulo:record.modulo,lote:record.lote}))],[geojson,records]);
   const selected=useMemo(()=>filterAnalyticsRecords(records,kind,filters),[records,kind,filters]);
   const filteredGeo=useMemo(()=>geojson?filterAnalyticsGeo(geojson,filters):undefined,[geojson,filters]);
   const depths=useMemo(()=>analyticsDepths(selected,filters.site),[selected,filters.site]);

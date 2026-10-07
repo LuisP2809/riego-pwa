@@ -6,7 +6,7 @@ import {endpointUrl} from "./access";
 import {DriveProtocolError,parseDriveReply,parseDriveGreeting,postDriveNative,verifyDriveNative} from "./drive-transport";
 import {RIEGO_ENDPOINT,APP_VERSION} from "./connection";
 
-export type Snapshot={records:Measurement[];geojson:GeoCollection;owner:boolean;sourceConnected:boolean;lastSync:string;units:Record<string,string>;scriptUrl?:string;profileName?:string};
+export type Snapshot={records:Measurement[];geojson:GeoCollection;owner:boolean;sourceConnected:boolean;lastSync:string;units:Record<string,string>;scriptUrl?:string;profileName?:string;waterQualityAvailable?:boolean};
 type Session={endpoint:string;token:string;owner:boolean;name?:string};
 const MASTER=validateGeo(JSON.parse(geoText));
 export class AccessError extends Error {code="ACCESS_DENIED";}
@@ -14,7 +14,7 @@ export const configuredEndpoint=()=>cached<string>("endpoint");
 export async function configureEndpoint(value:string){await cache("endpoint",endpointUrl(value));}
 async function localSnapshot():Promise<Snapshot>{
   const session=await cached<Session>("session"),old=await cached<Snapshot>("snapshot");
-  return {records:old?.records??[],geojson:old?.geojson??MASTER,owner:session?.owner??false,profileName:session?.name??"",sourceConnected:Boolean(session),lastSync:old?.lastSync??"",units:old?.units??{},scriptUrl:session?.endpoint??await configuredEndpoint()};
+  return {records:old?.records??[],geojson:old?.geojson??MASTER,owner:session?.owner??false,profileName:session?.name??"",sourceConnected:Boolean(session),lastSync:old?.lastSync??"",units:old?.units??{},scriptUrl:session?.endpoint??await configuredEndpoint(),waterQualityAvailable:old?.waterQualityAvailable??false};
 }
 async function verifyConnection(endpoint:string):Promise<void>{
   try{
@@ -87,19 +87,27 @@ export async function api<T>(action:string,body?:unknown):Promise<T>{
     }
     case "sync":{
       let s=await localSnapshot(),pending=s.records.filter(r=>!r.synced),written=0,latest:Measurement[]=[];
+      let waterHeld=false;
+      if(pending.some(record=>record.kind==="CALIDAD_AGUA")&&!s.waterQualityAvailable){
+        const info=await remote<{capabilities?:{waterQuality?:boolean}}>("status");
+        s={...s,waterQualityAvailable:info.capabilities?.waterQuality===true};await cache("snapshot",s);
+        waterHeld=!s.waterQualityAvailable;
+        if(waterHeld)pending=pending.filter(record=>record.kind!=="CALIDAD_AGUA");
+      }
       // Keep each confirmed batch before requesting the next. A lost response retries the same IDs.
       for(let i=0;i<Math.max(pending.length,1);i+=100){
         const batch=pending.slice(i,i+100).map(({synced:_,pending:__,createdAt:___,...r})=>r);
-        const r=await remote<{acknowledged:string[];records:Measurement[];units:Record<string,string>}>("sync",{records:batch});
+        const r=await remote<{acknowledged:string[];records:Measurement[];units:Record<string,string>;capabilities?:{waterQuality?:boolean}}>("sync",{records:batch,includeWaterQuality:true});
         if(!Array.isArray(r.acknowledged)||!Array.isArray(r.records))throw new Error("Respuesta de sincronización incompleta.");
         const ack=new Set(r.acknowledged);
         if(batch.some(record=>!ack.has(record.id)))throw new Error("Drive no confirmó todas las mediciones. Se conservarán para reintentar.");
         latest=r.records.map(row=>({...recordSchema.parse(row),synced:true}));
         const unsent=s.records.filter(row=>!row.synced&&!ack.has(row.id));
         const rows=new Map(latest.map(row=>[row.id,row]));unsent.forEach(row=>rows.set(row.id,row));
-        s={...s,records:[...rows.values()],units:r.units??s.units,lastSync:new Date().toISOString()};
+        s={...s,records:[...rows.values()],units:r.units??s.units,lastSync:new Date().toISOString(),waterQualityAvailable:r.capabilities?.waterQuality===true};
         await cache("snapshot",s);written+=batch.length;
       }
+      if(waterHeld)throw new Error("Calidad de agua sigue guardada en este celular. La conexión de Drive necesita actualizarse para recibir estos registros; las demás mediciones se sincronizaron.");
       return {...s,written,read:latest.length} as T;
     }
     case "invite":return await remote<T>("invite");

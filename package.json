@@ -1,9 +1,9 @@
 {
   "name": "riego-pwa",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "private": true,
   "type": "module",
-  "description": "Riego de campo: Humedades, Compactación, Presiones, gráficas y mapa.",
+  "description": "Riego de campo: Humedades, Compactación, Presiones, Calidad de agua, gráficas y mapa.",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc --noEmit && vite build",

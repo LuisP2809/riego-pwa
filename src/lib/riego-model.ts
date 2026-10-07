@@ -2,22 +2,28 @@ import { z } from "zod";
 
 export const KINDS = ["HUMEDADES", "COMPACTACION", "PRESIONES"] as const;
 export type Kind = typeof KINDS[number];
-export const HEADERS: Record<Kind, string[]> = {
+export const CAPTURE_KINDS = [...KINDS,"CALIDAD_AGUA"] as const;
+export type RecordKind = typeof CAPTURE_KINDS[number];
+export const SHEET_NAMES:Record<RecordKind,string>={HUMEDADES:"HUMEDADES",COMPACTACION:"COMPACTACION",PRESIONES:"PRESIONES",CALIDAD_AGUA:"CALIDAD AGUA"};
+export const HEADERS: Record<RecordKind, string[]> = {
   HUMEDADES: ["AÑO","MES","SEMANA","FECHA","LUGAR","FUNDO","MODULO","LOTE","PROF","%HUMEDAD"],
   COMPACTACION: ["AÑO","MES","SEMANA","FECHA","LUGAR","FUNDO","MODULO","LOTE","PUNTOS","M1","M2","M3"],
   PRESIONES: ["AÑO","MES","SEMANA","FECHA","LUGAR","FUNDO","MODULO","LOTE","LADO","PRESION FINAL"],
+  CALIDAD_AGUA: ["AÑO","MES","SEMANA","FECHA","LUGAR","FILTRADO","PH","C.E","Na","Ca"],
 };
-export const LABELS: Record<Kind,string> = {HUMEDADES:"Humedades", COMPACTACION:"Compactación", PRESIONES:"Presiones"};
+export const LABELS: Record<RecordKind,string> = {HUMEDADES:"Humedades", COMPACTACION:"Compactación", PRESIONES:"Presiones", CALIDAD_AGUA:"Calidad de agua"};
 export const recordSchema = z.object({
-  id:z.string().uuid(), kind:z.enum(KINDS),
+  id:z.string().uuid(), kind:z.enum(CAPTURE_KINDS),
   date:z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(v => { const d=new Date(v+"T12:00:00Z"); return Number.isFinite(d.getTime()) && d.toISOString().slice(0,10)===v; },"Fecha inválida"),
-  lugar:z.string().trim().min(1).max(100), fundo:z.string().trim().min(1).max(100),
-  modulo:z.string().trim().min(1).max(100), lote:z.string().trim().min(1).max(100),
+  lugar:z.string().trim().min(1).max(100), fundo:z.string().trim().max(100).default(""),
+  modulo:z.string().trim().max(100).default(""), lote:z.string().trim().max(100).default(""),
   prof:z.number().nonnegative().max(10000).optional(), humedad:z.number().min(0).max(100).optional(),
   puntos:z.string().trim().max(100).optional(), m1:z.number().nonnegative().optional(), m2:z.number().nonnegative().optional(), m3:z.number().nonnegative().optional(),
   lado:z.string().trim().max(100).optional(), presion:z.number().nonnegative().optional(),
+  filtrado:z.string().trim().max(100).optional(), ph:z.number().finite().nonnegative().optional(), ce:z.number().finite().nonnegative().optional(), na:z.number().finite().nonnegative().optional(), ca:z.number().finite().nonnegative().optional(),
 }).superRefine((r,c)=>{
-  const required = r.kind==="HUMEDADES" ? ["prof","humedad"] : r.kind==="COMPACTACION" ? ["puntos","m1","m2","m3"] : ["lado","presion"];
+  const required = r.kind==="HUMEDADES" ? ["prof","humedad"] : r.kind==="COMPACTACION" ? ["puntos","m1","m2","m3"] : r.kind==="PRESIONES" ? ["lado","presion"] : ["filtrado","ph","ce","na","ca"];
+  if(r.kind!=="CALIDAD_AGUA")required.push("fundo","modulo","lote");
   for(const key of required) if((r as Record<string, unknown>)[key]===undefined || (r as Record<string, unknown>)[key]==="") c.addIssue({code:"custom",path:[key],message:"Completa este campo"});
 });
 export type Measurement = z.infer<typeof recordSchema> & {synced?:boolean; pending?:boolean; createdAt?:string};

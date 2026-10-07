@@ -1,10 +1,10 @@
 # Riego · Campo
 
-Aplicación Android y PWA para capturar y consultar **Humedades, Compactación y Presiones**, con gráficas y mapa. Todos los dispositivos de campo tienen las mismas funciones. El dispositivo principal configura las unidades y entrega accesos; no hay roles de evaluador, supervisor ni administrador.
+Aplicación Android y PWA para capturar y consultar **Humedades, Compactación, Presiones y Calidad de agua**, con gráficas y mapa de los tres apartados por lote. Todos los dispositivos de campo tienen las mismas funciones. El dispositivo principal configura las unidades y entrega accesos; no hay roles de evaluador, supervisor ni administrador.
 
 ## Descargar e instalar
 
-Abre **Releases** de este repositorio y descarga el archivo `Riego-0.1.11.apk`. Android puede pedir que permitas la instalación desde el navegador o el gestor de archivos. El identificador de la app es `pe.riego.campo`, independiente de Fenología y Fitosanidad.
+Abre **Releases** de este repositorio y descarga el archivo `Riego-0.1.12.apk`. Android puede pedir que permitas la instalación desde el navegador o el gestor de archivos. El identificador de la app es `pe.riego.campo`, independiente de Fenología y Fitosanidad.
 
 El workflow **APK descargable de Riego** compila cada cambio de `main`, verifica la firma de actualización, el ID, la versión Android y el ajuste del teclado, guarda el APK en Actions y lo publica en Releases. Para publicar otra versión, aumenta `version` en `package.json`. No sobrescribe versiones ya publicadas con un cambio de código distinto.
 
@@ -65,15 +65,31 @@ Pulsa **Guardar presiones** para guardar todas las lecturas ingresadas juntas en
 
 Después de guardar, las casillas se vacían y se conserva la fecha y el módulo. Cambiar fecha, sede, fundo o módulo vacía el formulario para otra evaluación. Humedades y Compactación mantienen su selector de lote individual.
 
+## Capturar calidad de agua
+
+Selecciona **Fecha, Sede y Filtrado**. La lista de filtrados cambia con la sede:
+
+| Sede | Filtrados |
+| --- | --- |
+| OLMOS | FILTRADO PESQUERA, FILTRADO CHOLOCAL |
+| MOTUPE | FRANCO, CHOLOQUE, PALACIOS, CHOC CHOC, ANDINA |
+
+Debajo aparecen **pH, CE, Na y Ca**, cada uno con su casilla al costado. Completa las cuatro lecturas con números mayores o iguales a cero; se admiten decimales. **Guardar calidad de agua** conserva las cuatro lecturas juntas en un registro local. **Sincronizar con Drive** envía una fila a **CALIDAD AGUA**, con año, mes y semana calculados desde la fecha. El historial muestra sede, filtrado y los cuatro valores. Cambiar fecha, sede o filtrado vacía las lecturas; cambiar sede también limpia el filtrado seleccionado.
+
+La hoja **CALIDAD AGUA** y sus encabezados se comprobaron con la conexión de Google el 7 de octubre de 2026. Para habilitar el envío a esta hoja, actualiza el proyecto existente de Apps Script con **apps-script/Riego.gs**, guarda y edita la implementación actual en **Implementar → Gestionar implementaciones → Editar → Nueva versión**. Conserva el mismo enlace y configuración de acceso. Puedes ejecutar **verificarCalidadAgua** para comprobar solo los encabezados; no vuelvas a ejecutar **configurarRiego** ni **crearAccesoPropietario**, porque no necesitas otra clave inicial.
+
+La APK comprueba si la conexión admite agua antes de enviarla. Mientras el script anterior siga publicado, el agua permanece pendiente en el dispositivo y las otras tres clases de mediciones pueden sincronizarse. Tras actualizar la implementación, vuelve a pulsar **Sincronizar con Drive**. Las APK anteriores siguen recibiendo sus tres apartados sin registros de agua que no puedan interpretar.
+
 ## Columnas originales
 
-El script conserva tus tres hojas, nombres, orden y columnas. No crea hojas adicionales, columnas de acceso ni columnas de identificadores. Cada registro usa una nota `RIEGO_ID` en la celda de AÑO para que reintentar no duplique filas; conserva las notas previas.
+El script conserva tus cuatro hojas, nombres, orden y columnas. No crea hojas adicionales, columnas de acceso ni columnas de identificadores. Cada registro usa una nota `RIEGO_ID` en la celda de AÑO para que reintentar no duplique filas; conserva las notas previas.
 
 | Hoja | Columnas |
 | --- | --- |
 | HUMEDADES | AÑO, MES, SEMANA, FECHA, LUGAR, FUNDO, MODULO, LOTE, PROF, %HUMEDAD |
 | COMPACTACION | AÑO, MES, SEMANA, FECHA, LUGAR, FUNDO, MODULO, LOTE, PUNTOS, M1, M2, M3 |
 | PRESIONES | AÑO, MES, SEMANA, FECHA, LUGAR, FUNDO, MODULO, LOTE, LADO, PRESION FINAL |
+| CALIDAD AGUA | AÑO, MES, SEMANA, FECHA, LUGAR, FILTRADO, PH, C.E, Na, Ca |
 
 Año, mes y semana ISO se calculan desde la fecha. Los porcentajes de humedad almacenados con formato de porcentaje de Sheets se convierten a puntos porcentuales. Las nuevas filas de humedad usan valores de 0 a 100 con formato numérico.
 
@@ -81,7 +97,7 @@ Año, mes y semana ISO se calculan desde la fecha. Los porcentajes de humedad al
 
 Los recursos web van incluidos en el APK; no necesita iniciar sesión en ChatGPT ni cargar la PWA privada. El primer acceso por código o QR requiere internet. Después, el celular conserva el acceso y permite registrar, consultar y representar sus datos locales sin conexión. El mapa incluye los polígonos; la base de OpenStreetMap requiere conexión.
 
-Las mediciones se guardan primero en IndexedDB. **Sincronizar con Drive** envía hasta 100 por solicitud, conserva las confirmaciones de cada lote y descarga las mediciones de las tres hojas. Las lecturas importadas reflejan los cambios del archivo; los registros locales que faltan por enviar se conservan. Si una respuesta se pierde, reintentar usa el mismo UUID. No desinstales ni borres los datos de la app antes de sincronizar lo pendiente. El cierre de acceso se bloquea cuando existen mediciones pendientes.
+Las mediciones se guardan primero en IndexedDB. **Sincronizar con Drive** envía hasta 100 por solicitud, conserva las confirmaciones de cada lote y descarga las mediciones de las cuatro hojas, con la implementación de Apps Script actualizada. Las lecturas importadas reflejan los cambios del archivo; los registros locales que faltan por enviar se conservan. Si una respuesta se pierde, reintentar usa el mismo UUID. No desinstales ni borres los datos de la app antes de sincronizar lo pendiente. El cierre de acceso se bloquea cuando existen mediciones pendientes.
 
 Los accesos se almacenan mediante hashes en las propiedades de Apps Script. Los códigos son temporales y de un solo uso. El servidor valida el token antes de acceder al archivo y utiliza un bloqueo para la activación y la sincronización. Al volver a conectarse, verifica la vigencia del acceso; sin conexión utiliza la activación guardada localmente.
 
@@ -125,6 +141,6 @@ npm run apk:debug
 
 El proyecto Android se genera desde Capacitor y queda fuera de Git. `scripts/configure-android.mjs` aplica el nombre, ID, versión, Android mínimo 8, enlaces `riego://activate`, icono y desactiva la copia de seguridad automática de datos de dispositivos.
 
-`npm test` ejecuta 47 pruebas. Verifica límites y colores, promedios del ranking y mapa, filtros de fecha y ubicación, lecturas por lado, identidad completa por sede/fundo/módulo/lote, semana ISO y huecos sin datos, promedios por fundo, matriz por profundidad, cero y ausencia de lecturas, las vistas y etiquetas de Gráficas, además de los lotes completos del módulo para Presiones, filas Este y Oeste, lecturas parciales, cero y decimales, etiquetas de lote y lado y reintentos en las columnas originales, la captura de los seis puntos de compactación, sus 18 lecturas, ceros y decimales, rechazos de valores incompletos o inválidos, las filas originales y reintentos sin duplicar, el formulario con etiquetas por punto y unidad, el selector nativo de Sede y el cambio de lote y módulo después de guardar, las opciones completas y el reinicio de los campos dependientes, perfiles de humedad de Olmos y Motupe, captura completa, decimal con coma, filas originales y reintentos sin duplicar, fechas y semana ISO, humedad cero y límites, identidad exacta del GeoJSON, QR y restricciones del servidor, acceso sin token, códigos de un uso, vencimiento, permisos de configuración, revocación, reintentos sin duplicar, conflictos sin filas parciales, las tres hojas, porcentajes, notas y conservación de lotes confirmados al interrumpirse la sincronización. También prueba el envío nativo, las redirecciones de Google, el rechazo de otros destinos, los errores de formato, la lectura fallida sin reenviar la activación y la conservación de la sesión nativa. Las pruebas también verifican que la comprobación use GET sin credenciales, que un servicio incorrecto o un fallo de red detenga la activación, que un enlace previo no cambie el destino del principal y que cliente y Apps Script simulado permitan activar al principal y entregar acceso a un segundo dispositivo. Las pruebas de Apps Script y HTTP son simuladas, sin leer ni escribir el archivo de Google.
+`npm test` ejecuta 55 pruebas. Ocho pruebas de agua verifican los filtrados por sede, las cuatro lecturas obligatorias, cero y decimales, las diez columnas originales, reintentos sin duplicar, rechazos sin filas parciales, conservación de accesos, formularios y compatibilidad con APK y conexiones anteriores. Las restantes comprobaciones se describen a continuación. Verifica límites y colores, promedios del ranking y mapa, filtros de fecha y ubicación, lecturas por lado, identidad completa por sede/fundo/módulo/lote, semana ISO y huecos sin datos, promedios por fundo, matriz por profundidad, cero y ausencia de lecturas, las vistas y etiquetas de Gráficas, además de los lotes completos del módulo para Presiones, filas Este y Oeste, lecturas parciales, cero y decimales, etiquetas de lote y lado y reintentos en las columnas originales, la captura de los seis puntos de compactación, sus 18 lecturas, ceros y decimales, rechazos de valores incompletos o inválidos, las filas originales y reintentos sin duplicar, el formulario con etiquetas por punto y unidad, el selector nativo de Sede y el cambio de lote y módulo después de guardar, las opciones completas y el reinicio de los campos dependientes, perfiles de humedad de Olmos y Motupe, captura completa, decimal con coma, filas originales y reintentos sin duplicar, fechas y semana ISO, humedad cero y límites, identidad exacta del GeoJSON, QR y restricciones del servidor, acceso sin token, códigos de un uso, vencimiento, permisos de configuración, revocación, reintentos sin duplicar, conflictos sin filas parciales, las tres hojas, porcentajes, notas y conservación de lotes confirmados al interrumpirse la sincronización. También prueba el envío nativo, las redirecciones de Google, el rechazo de otros destinos, los errores de formato, la lectura fallida sin reenviar la activación y la conservación de la sesión nativa. Las pruebas también verifican que la comprobación use GET sin credenciales, que un servicio incorrecto o un fallo de red detenga la activación, que un enlace previo no cambie el destino del principal y que cliente y Apps Script simulado permitan activar al principal y entregar acceso a un segundo dispositivo. Las pruebas de Apps Script y HTTP son simuladas, sin leer ni escribir el archivo de Google.
 
 La conexión se publicó y sus encabezados se comprobaron en Google. La respuesta HTTP real no se pudo verificar desde este navegador porque bloqueó la apertura del enlace de la implementación. El propietario confirmó que pudo entrar desde su teléfono. El propietario confirmó pruebas de captura de humedades. Las gráficas, la captura de presiones por módulo y de compactación de seis puntos, la corrección visual al abrir Sede o el teclado, sincronización y cámara desde un celular físico requieren la prueba del propietario con la nueva APK.
