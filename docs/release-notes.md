@@ -1,11 +1,11 @@
-# Riego 0.1.4
+# Riego 0.1.5
 
-La conexión de RIEGO Y FERTILIZACION viene preparada en el APK. El acceso principal requiere tu nombre y la clave inicial; ya no necesitas pegar un enlace ni configurar Apps Script en la pantalla de entrada. La clave y los tokens no se incluyen en el APK ni en el repositorio.
+En Humedades, selecciona fecha, sede, fundo, módulo y lote. Debajo aparecen las profundidades con una casilla de humedad al costado: **20, 40 y 60 cm para Olmos**; **20, 40, 60 y 80 cm para Motupe**.
 
-Antes de enviar la clave, la app comprueba la bienvenida de Riego mediante GET sin credenciales. Si falla esa comprobación, no envía la clave ni guarda un acceso. El principal usa la conexión preparada aunque quede guardado otro enlace de un intento anterior. Los códigos y QR del equipo conservan su conexión.
+**Guardar humedades** guarda las tres o cuatro lecturas juntas en el dispositivo, con la misma fecha y ubicación. Cada humedad admite valores de 0 a 100%, incluido cero. Completa todas las profundidades antes de guardar. Al cambiar fecha o ubicación, las casillas se vacían para iniciar otra evaluación. La profundidad se muestra en centímetros también en los registros y las gráficas.
 
-La versión aparece desde la pantalla inicial. Un rechazo sin explicación muestra versión, operación e identificador RIEGO_REPLY_REJECTED; los fallos de comprobación muestran RIEGO_CONNECTION. Se mantiene el manejo explícito de las redirecciones de Google.
+Al sincronizar, cada profundidad ocupa una fila en HUMEDADES y conserva las diez columnas originales del archivo. Los identificadores existentes evitan duplicar filas al reintentar. No se requiere volver a implementar Apps Script para esta actualización.
 
-Instala Riego-0.1.4.apk sobre la versión actual, sin desinstalar ni borrar datos. Usa la clave inicial entregada, mientras siga vigente y sin consumir. Tras entrar, Mis accesos permite generar códigos y QR.
+Instala Riego-0.1.5.apk sobre la versión actual, sin desinstalar ni borrar datos, para conservar el acceso y los registros. El propietario confirmó que ya pudo entrar con la versión anterior el 7 de octubre de 2026.
 
-Se ejecutan 22 pruebas de acceso, transporte, sincronización y mapa, además de la compilación web y Android. Las pruebas de HTTP y Apps Script son simuladas. La activación en un teléfono físico está pendiente de confirmar. La APK conserva el certificado de desarrollo de las versiones anteriores; no es una distribución de Google Play.
+Se ejecutan 25 pruebas de captura, acceso, transporte, sincronización y mapa, además de la compilación web y Android. La sincronización de perfiles completos y los reintentos se prueban con Apps Script simulado; el registro y envío de un perfil desde el teléfono requieren la comprobación del propietario. La APK conserva el certificado de desarrollo de las versiones anteriores.

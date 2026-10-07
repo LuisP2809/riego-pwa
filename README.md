@@ -4,7 +4,7 @@ Aplicación Android y PWA para capturar y consultar **Humedades, Compactación y
 
 ## Descargar e instalar
 
-Abre **Releases** de este repositorio y descarga el archivo `Riego-0.1.4.apk`. Android puede pedir que permitas la instalación desde el navegador o el gestor de archivos. El identificador de la app es `pe.riego.campo`, independiente de Fenología y Fitosanidad.
+Abre **Releases** de este repositorio y descarga el archivo `Riego-0.1.5.apk`. Android puede pedir que permitas la instalación desde el navegador o el gestor de archivos. El identificador de la app es `pe.riego.campo`, independiente de Fenología y Fitosanidad.
 
 El workflow **APK descargable de Riego** compila cada cambio de `main`, guarda el APK en Actions y lo publica en Releases. Para publicar otra versión, aumenta `version` en `package.json`. No sobrescribe versiones ya publicadas con un cambio de código distinto.
 
@@ -27,12 +27,23 @@ Archivo identificado del propietario: `1JgvxAAqxLuPGjLkBoj6XpHl3f8n_8Q9ouavMOb8B
 3. Ejecuta **configurarRiego** y autoriza el acceso al archivo. El registro de ejecución muestra un **código inicial de 64 caracteres** para tu dispositivo principal. Se usa una vez y vence en 24 horas. Consérvalo en privado.
 4. En **Implementar → Nueva implementación**, elige **Aplicación web**, ejecutada **como tú**, con acceso **Cualquier usuario**. Copia el enlace que termina en **/exec**. Cada operación de datos se valida con el acceso del dispositivo.
 5. Instala el APK y pulsa **Crear mi acceso principal**. Escribe tu nombre y apellidos y pulsa **Continuar**. En el segundo paso, la conexión al archivo ya está preparada: pega el código inicial en **Clave inicial de configuración** y pulsa **Crear mi acceso y entrar**. Si vuelves a implementar el script con otro enlace, actualiza `RIEGO_ENDPOINT` en `src/lib/connection.ts` y compila una nueva versión del APK.
-6. Abre **Mis accesos → Unidades y archivo de Drive**, indica las unidades de profundidad, compactación y presión y guarda. No se han supuesto unidades para esas columnas.
+6. Abre **Mis accesos → Unidades y archivo de Drive**, indica las unidades de compactación y presión y guarda. Humedades usa profundidades en centímetros según lo solicitado por el propietario.
 7. En **Mis accesos**, pulsa **Generar código y QR**. En el otro celular instala el mismo APK, elige **Tengo un código o QR** y usa **Escanear mi QR**. El QR incluye la conexión y un código de 12 caracteres para un único dispositivo; también puedes pegar el **acceso completo** compartido o ingresar manualmente el enlace y el código. El código vence en 24 horas.
 
 Si pierdes el acceso del dispositivo principal, ejecuta **crearAccesoPropietario** en Apps Script para emitir un nuevo código inicial. Esto requiere acceso al proyecto de Google; la app no puede adjudicarse ese acceso por sí sola.
 
-La conexión del propietario fue publicada el 7 de octubre de 2026 y la función de configuración verificó los encabezados de las tres hojas. El enlace público se integra en el APK; la clave inicial se entrega al propietario y no se incluye en el repositorio. El 7 de octubre se verificó en las propiedades de Google que la clave entregada seguía vigente y sin consumir. La captura recibida confirmó el aviso genérico, pero no permitió leer el enlace completo ni confirmar la versión instalada. La activación y sincronización desde un celular físico siguen pendientes de validar.
+La conexión del propietario fue publicada el 7 de octubre de 2026 y la función de configuración verificó los encabezados de las tres hojas. El enlace público se integra en el APK; las claves y los tokens no se incluyen en el repositorio. El propietario confirmó que ya pudo entrar el 7 de octubre de 2026. La sincronización desde el teléfono aún requiere su comprobación.
+
+## Capturar humedades
+
+Selecciona una sola vez **Fecha, Sede, Fundo, Módulo y Lote**. Las casillas aparecen debajo cuando esos datos están completos.
+
+| Sede | Profundidades |
+| --- | --- |
+| OLMOS | 20, 40 y 60 cm |
+| MOTUPE | 20, 40, 60 y 80 cm |
+
+Cada fila muestra la profundidad y una casilla de humedad (%) al costado. Completa todas las lecturas de la sede con valores de 0 a 100 y pulsa **Guardar humedades**. Se guardan juntas en una transacción local; al sincronizar se envía una fila por profundidad con la misma fecha y ubicación. Cambiar cualquiera de los cinco datos vacía las humedades para otra evaluación. El guardado vacía las casillas y conserva la ubicación seleccionada.
 
 ## Columnas originales
 
@@ -73,6 +84,6 @@ npm run apk:debug
 
 El proyecto Android se genera desde Capacitor y queda fuera de Git. `scripts/configure-android.mjs` aplica el nombre, ID, versión, Android mínimo 8, enlaces `riego://activate`, icono y desactiva la copia de seguridad automática de datos de dispositivos.
 
-`npm test` verifica fechas y semana ISO, humedad cero y límites, identidad exacta del GeoJSON, QR y restricciones del servidor, acceso sin token, códigos de un uso, vencimiento, permisos de configuración, revocación, reintentos sin duplicar, conflictos sin filas parciales, las tres hojas, porcentajes, notas y conservación de lotes confirmados al interrumpirse la sincronización. También prueba el envío nativo, las redirecciones de Google, el rechazo de otros destinos, los errores de formato, la lectura fallida sin reenviar la activación y la conservación de la sesión nativa. Las pruebas también verifican que la comprobación use GET sin credenciales, que un servicio incorrecto o un fallo de red detenga la activación, que un enlace previo no cambie el destino del principal y que cliente y Apps Script simulado permitan activar al principal y entregar acceso a un segundo dispositivo. Las pruebas de Apps Script y HTTP son simuladas, sin leer ni escribir el archivo de Google.
+`npm test` verifica perfiles de humedad de Olmos y Motupe, captura completa, decimal con coma, filas originales y reintentos sin duplicar, fechas y semana ISO, humedad cero y límites, identidad exacta del GeoJSON, QR y restricciones del servidor, acceso sin token, códigos de un uso, vencimiento, permisos de configuración, revocación, reintentos sin duplicar, conflictos sin filas parciales, las tres hojas, porcentajes, notas y conservación de lotes confirmados al interrumpirse la sincronización. También prueba el envío nativo, las redirecciones de Google, el rechazo de otros destinos, los errores de formato, la lectura fallida sin reenviar la activación y la conservación de la sesión nativa. Las pruebas también verifican que la comprobación use GET sin credenciales, que un servicio incorrecto o un fallo de red detenga la activación, que un enlace previo no cambie el destino del principal y que cliente y Apps Script simulado permitan activar al principal y entregar acceso a un segundo dispositivo. Las pruebas de Apps Script y HTTP son simuladas, sin leer ni escribir el archivo de Google.
 
-La conexión se publicó y sus encabezados se comprobaron en Google. La respuesta HTTP real no se pudo verificar desde este navegador porque bloqueó la apertura del enlace de la implementación. La activación, sincronización y cámara en un celular físico requieren la prueba del propietario con la nueva APK.
+La conexión se publicó y sus encabezados se comprobaron en Google. La respuesta HTTP real no se pudo verificar desde este navegador porque bloqueó la apertura del enlace de la implementación. El propietario confirmó que pudo entrar desde su teléfono. La captura de humedades, sincronización y cámara desde un celular físico requieren la prueba del propietario con la nueva APK.

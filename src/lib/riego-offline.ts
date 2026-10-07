@@ -6,6 +6,17 @@ export const cached=<T>(key:string)=>transaction<T|undefined>("state","readonly"
 export const cache=(key:string,value:unknown)=>transaction("state","readwrite",s=>s.put(value,key));
 export const queued=()=>transaction<Measurement[]>("queue","readonly",s=>s.getAll());
 export const enqueue=(r:Measurement)=>transaction("queue","readwrite",s=>s.put(r));
+export async function enqueueBatch(records:Measurement[]):Promise<void>{
+ const db=await database();
+ await new Promise<void>((resolve,reject)=>{
+  const tx=db.transaction("queue","readwrite"),store=tx.objectStore("queue");
+  tx.oncomplete=()=>{db.close();resolve();};
+  tx.onerror=()=>{db.close();reject(tx.error);};
+  tx.onabort=()=>{db.close();reject(tx.error??new Error("No se pudieron guardar las mediciones."));};
+  try{records.forEach(record=>store.put(record));}
+  catch(error){tx.abort();db.close();reject(error);}
+ });
+}
 export async function acknowledge(ids:string[]){const db=await database();await new Promise<void>((resolve,reject)=>{const tx=db.transaction("queue","readwrite");ids.forEach(id=>tx.objectStore("queue").delete(id));tx.oncomplete=()=>{db.close();resolve();};tx.onerror=()=>{db.close();reject(tx.error);};});}
 export async function clearCached(){await transaction("state","readwrite",s=>s.clear());}
 export async function clearAccessState(){

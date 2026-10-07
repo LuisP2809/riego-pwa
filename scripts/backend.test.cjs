@@ -2,6 +2,7 @@ const test=require('node:test'),assert=require('node:assert/strict'),fs=require(
 const ROOT=path.resolve(__dirname,'..');
 function tsModule(file,requireFn=require,extras={}){const exports={};const context={exports,module:{exports},require:requireFn,Date,Intl,URL,URLSearchParams,Math,Number,String,Set,Map,JSON,console,Error,...extras};vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(ROOT,file),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,context);return exports;}
 const model=tsModule('src/lib/riego-model.ts'),access=tsModule('src/lib/access.ts');
+const humedades=tsModule('src/lib/humedades.ts',name=>name==='./riego-model'?model:require(name),{crypto});
 const transport=tsModule('src/lib/drive-transport.ts',name=>name==='./access'?access:require(name));
 const connection=tsModule('src/lib/connection.ts',name=>name==='../../package.json'?require('../package.json'):require(name));
 const webReply=data=>({ok:true,status:200,headers:{get:()=> 'application/json'},text:async()=>JSON.stringify(data)});
@@ -37,6 +38,37 @@ test('Fechas reales, cambio de semana ISO, cero y humedad de 0 a 100%',()=>{
  assert(!model.recordSchema.safeParse({...base,date:'2026-02-30'}).success);
  assert(!model.recordSchema.safeParse({...base,humedad:101}).success);
  assert(!model.recordSchema.safeParse({...base,prof:undefined}).success);
+});
+test('Una evaluación de humedad genera las profundidades de la sede con la misma fecha y ubicación',()=>{
+ const context={date:base.date,lugar:base.lugar,fundo:base.fundo,modulo:base.modulo,lote:base.lote};
+ const values={20:'0',40:'28,5',60:'100',80:'35'};
+ for(const [lugar,expected] of [['OLMOS',[20,40,60]],['MOTUPE',[20,40,60,80]]]){
+  const records=humedades.makeHumidityRecords({...context,lugar},values);
+  assert.deepEqual(Array.from(records,r=>r.prof),expected);
+  assert.equal(new Set(Array.from(records,r=>r.id)).size,expected.length);
+  for(const r of records){assert.equal(r.kind,'HUMEDADES');assert.equal(r.date,context.date);assert.equal(r.lugar,lugar);assert.equal(r.fundo,context.fundo);assert.equal(r.modulo,context.modulo);assert.equal(r.lote,context.lote);assert(model.recordSchema.safeParse(r).success);}
+  assert.deepEqual(Array.from(records,r=>r.humedad),expected.length===3?[0,28.5,100]:[0,28.5,100,35]);
+ }
+});
+test('La evaluación rechaza datos incompletos o humedades inválidas antes de guardar; Olmos no exige 80 cm',()=>{
+ const context={date:base.date,lugar:base.lugar,fundo:base.fundo,modulo:base.modulo,lote:base.lote},values={20:'28',40:'30',60:'32'};
+ assert.equal(humedades.makeHumidityRecords(context,values).length,3);
+ assert.throws(()=>humedades.makeHumidityRecords({...context,lugar:'MOTUPE'},values),/80 cm/);
+ for(const key of ['date','lugar','fundo','modulo','lote'])assert.throws(()=>humedades.makeHumidityRecords({...context,[key]:''},values));
+ for(const value of ['', ' ', '-1', '101', 'abc', 'Infinity'])assert.throws(()=>humedades.makeHumidityRecords(context,{...values,40:value}),/40 cm/);
+ assert.throws(()=>humedades.makeHumidityRecords({...context,lugar:'OTRA SEDE'},values));
+ assert.throws(()=>humedades.makeHumidityRecords({...context,date:'2026-02-30'},values));
+});
+test('El perfil completo se sincroniza en las columnas originales sin duplicarse al reintentar',()=>{
+ const b=backend(),context={date:base.date,lugar:base.lugar,fundo:base.fundo,modulo:base.modulo,lote:base.lote},values={20:'28',40:'30',60:'32',80:'34'};
+ const records=JSON.parse(JSON.stringify([...humedades.makeHumidityRecords(context,values),...humedades.makeHumidityRecords({...context,date:'2026-10-07',lugar:'MOTUPE'},values)]));
+ const send=()=>b.call('sync',{token:b.owner.token,records});
+ let result=send();assert(result.ok,result.error);assert.equal(result.acknowledged.length,7);assert.equal(b.sheets.HUMEDADES.values.length,8);
+ for(let i=0;i<records.length;i++){
+  const row=b.sheets.HUMEDADES.values[i+1],record=records[i];assert.equal(row.length,10);
+  assert.equal(row[3].toISOString().slice(0,10),record.date);assert.deepEqual(row.slice(4,8),[record.lugar,record.fundo,record.modulo,record.lote]);assert.equal(row[8],record.prof);assert.equal(row[9],record.humedad);
+ }
+ result=send();assert(result.ok,result.error);assert.equal(b.sheets.HUMEDADES.values.length,8);
 });
 test('GeoJSON original: 254 identidades únicas y coincidencia de ubicación completa',()=>{
  const bytes=fs.readFileSync(path.join(ROOT,'data/lotes-mapa.geojson'));
