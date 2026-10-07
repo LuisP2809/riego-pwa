@@ -3,6 +3,7 @@ import geoText from "../../data/lotes-mapa.geojson?raw";
 import {recordSchema,validateGeo,type Measurement,type GeoCollection} from "./riego-model";
 import {cached,cache,clearAccessState} from "./riego-offline";
 import {endpointUrl} from "./access";
+import {DriveProtocolError,parseDriveReply,postDriveNative} from "./drive-transport";
 
 export type Snapshot={records:Measurement[];geojson:GeoCollection;owner:boolean;sourceConnected:boolean;lastSync:string;units:Record<string,string>;scriptUrl?:string;profileName?:string};
 type Session={endpoint:string;token:string;owner:boolean;name?:string};
@@ -18,15 +19,13 @@ async function request<T>(endpoint:string,payload:Record<string,unknown>):Promis
   const url=endpointUrl(endpoint);let data:unknown;
   try {
     if(Capacitor.isNativePlatform()){
-      const r=await CapacitorHttp.post({url,headers:{"Content-Type":"application/json"},data:payload,connectTimeout:20000,readTimeout:45000,responseType:"json"});
-      if(r.status<200||r.status>=300)throw new Error(`Error de conexión (${r.status}).`);
-      data=typeof r.data==="string"?JSON.parse(r.data):r.data;
+      data=await postDriveNative(url,payload,CapacitorHttp);
     }else{
       const r=await fetch(url,{method:"POST",headers:{"Content-Type":"text/plain;charset=UTF-8"},body:JSON.stringify(payload),redirect:"follow",credentials:"omit",signal:AbortSignal.timeout(45000)});
       if(!r.ok)throw new Error(`Error de conexión (${r.status}).`);
-      data=await r.json();
+      data=parseDriveReply(await r.text(),{status:r.status,url:r.url||url,contentType:r.headers.get("content-type")??""});
     }
-  }catch(e){throw new Error("No se pudo conectar con Drive. Comprueba internet y que Apps Script esté publicado para cualquier usuario. "+(e as Error).message);}
+  }catch(e){if(e instanceof DriveProtocolError)throw e;throw new Error("No se pudo conectar con Drive. Comprueba internet y que Apps Script esté publicado para cualquier usuario. "+(e as Error).message);}
   const out=data as {ok?:boolean;error?:string;code?:string};
   if(out?.code==="ACCESS_DENIED")throw new AccessError(out.error??"Este dispositivo ya no tiene acceso.");
   if(!out||out.ok!==true)throw new Error(out?.error??"Respuesta de Drive inválida.");
@@ -56,6 +55,7 @@ export async function api<T>(action:string,body?:unknown):Promise<T>{
       const endpoint=await configuredEndpoint();if(!endpoint)throw new Error("Primero pega el enlace de conexión o escanea el QR que recibiste.");
       const old=await cached<Snapshot>("snapshot");if(old?.records.some(r=>!r.synced)&&old.scriptUrl!==endpoint)throw new Error("Hay mediciones de otra conexión pendientes. Sincronízalas antes de cambiar de archivo.");
       const r=await request<{ok:boolean;token:string;owner:boolean;name?:string;units:Record<string,string>}>(endpoint,{action:"activate",code,principal:b.principal,name});
+      if(typeof r.token!=="string"||!/^[a-f0-9]{64}$/.test(r.token)||typeof r.owner!=="boolean")throw new DriveProtocolError("Google confirmó una respuesta de activación incompleta. No se guardó un acceso inválido en este dispositivo.");
       if(b.principal===true&&!r.owner)throw new AccessError("Este código no permite crear un acceso principal.");
       await cache("session",{endpoint,token:r.token,owner:r.owner,name:r.name??name});await cache("activated",true);
       await cache("snapshot",{records:old?.scriptUrl===endpoint?old.records:[],geojson:old?.scriptUrl===endpoint?old.geojson:MASTER,owner:r.owner,profileName:r.name??name,sourceConnected:true,lastSync:old?.scriptUrl===endpoint?old.lastSync:"",units:r.units??{},scriptUrl:endpoint});

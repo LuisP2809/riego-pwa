@@ -4,7 +4,7 @@ Aplicación Android y PWA para capturar y consultar **Humedades, Compactación y
 
 ## Descargar e instalar
 
-Abre **Releases** de este repositorio y descarga el archivo `Riego-0.1.2.apk`. Android puede pedir que permitas la instalación desde el navegador o el gestor de archivos. El identificador de la app es `pe.riego.campo`, independiente de Fenología y Fitosanidad.
+Abre **Releases** de este repositorio y descarga el archivo `Riego-0.1.3.apk`. Android puede pedir que permitas la instalación desde el navegador o el gestor de archivos. El identificador de la app es `pe.riego.campo`, independiente de Fenología y Fitosanidad.
 
 El workflow **APK descargable de Riego** compila cada cambio de `main`, guarda el APK en Actions y lo publica en Releases. Para publicar otra versión, aumenta `version` en `package.json`. No sobrescribe versiones ya publicadas con un cambio de código distinto.
 
@@ -14,7 +14,9 @@ El APK inicial es una compilación de prueba. El certificado `scripts/android-de
 
 La pantalla inicial destaca **Crear mi acceso principal**. Primero escribes tu nombre y apellidos; luego vinculas el archivo para confirmar que ese dispositivo es tuyo. Después de entrar, **Mis accesos** permite generar los códigos y QR del equipo. Los demás eligen **Tengo un código o QR** en una pantalla separada. Sus códigos no crean otro acceso principal.
 
-Si ya activaste tu dispositivo con 0.1.1, la actualización conserva su acceso y los registros. No necesitas repetir la configuración.
+Instala las actualizaciones sobre la app existente para conservar su acceso y los registros. Si el dispositivo ya está activado, no necesitas repetir la configuración.
+
+La versión 0.1.3 procesa explícitamente las redirecciones de Apps Script en Android. Envía la solicitud al enlace de la implementación y lee el resultado de Google con GET sin reenviar el código o el token a la URL de contenido. Ante una página web, una respuesta vacía o un formato distinto, muestra un mensaje específico; no guarda una sesión incompleta.
 
 ## Conectar tu archivo de Drive
 
@@ -30,7 +32,7 @@ Archivo identificado del propietario: `1JgvxAAqxLuPGjLkBoj6XpHl3f8n_8Q9ouavMOb8B
 
 Si pierdes el acceso del dispositivo principal, ejecuta **crearAccesoPropietario** en Apps Script para emitir un nuevo código inicial. Esto requiere acceso al proyecto de Google; la app no puede adjudicarse ese acceso por sí sola.
 
-La configuración de Apps Script y su autorización en Google **aún no se han realizado**. No se ha publicado ni modificado tu archivo de Drive durante la creación del APK.
+La conexión del propietario fue publicada el 7 de octubre de 2026 y la función de configuración verificó los encabezados de las tres hojas. El enlace y la clave inicial se entregan al propietario; la clave no se incluye en el repositorio. La activación y sincronización desde un celular físico están pendientes de validar después de un fallo de respuesta reportado en 0.1.2.
 
 ## Columnas originales
 
@@ -71,6 +73,6 @@ npm run apk:debug
 
 El proyecto Android se genera desde Capacitor y queda fuera de Git. `scripts/configure-android.mjs` aplica el nombre, ID, versión, Android mínimo 8, enlaces `riego://activate`, icono y desactiva la copia de seguridad automática de datos de dispositivos.
 
-`npm test` verifica fechas y semana ISO, humedad cero y límites, identidad exacta del GeoJSON, QR y restricciones del servidor, acceso sin token, códigos de un uso, vencimiento, permisos de configuración, revocación, reintentos sin duplicar, conflictos sin filas parciales, las tres hojas, porcentajes, notas y conservación de lotes confirmados al interrumpirse la sincronización. Las pruebas de Apps Script son simuladas, sin leer ni escribir el archivo de Google.
+`npm test` verifica fechas y semana ISO, humedad cero y límites, identidad exacta del GeoJSON, QR y restricciones del servidor, acceso sin token, códigos de un uso, vencimiento, permisos de configuración, revocación, reintentos sin duplicar, conflictos sin filas parciales, las tres hojas, porcentajes, notas y conservación de lotes confirmados al interrumpirse la sincronización. También prueba el envío nativo, las redirecciones de Google, el rechazo de otros destinos, los errores de formato, la lectura fallida sin reenviar la activación y la conservación de la sesión nativa. Las pruebas de Apps Script y HTTP son simuladas, sin leer ni escribir el archivo de Google.
 
-La conexión real con Apps Script y la cámara/instalación en un celular físico quedan por probar después de la configuración del propietario.
+La conexión se publicó y sus encabezados se comprobaron en Google. La respuesta HTTP real no se pudo verificar desde este navegador porque bloqueó la apertura del enlace de la implementación. La activación, sincronización y cámara en un celular físico requieren la prueba del propietario con la nueva APK.

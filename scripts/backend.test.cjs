@@ -2,6 +2,8 @@ const test=require('node:test'),assert=require('node:assert/strict'),fs=require(
 const ROOT=path.resolve(__dirname,'..');
 function tsModule(file,requireFn=require,extras={}){const exports={};const context={exports,module:{exports},require:requireFn,Date,Intl,URL,URLSearchParams,Math,Number,String,Set,Map,JSON,console,Error,...extras};vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(ROOT,file),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,context);return exports;}
 const model=tsModule('src/lib/riego-model.ts'),access=tsModule('src/lib/access.ts');
+const transport=tsModule('src/lib/drive-transport.ts',name=>name==='./access'?access:require(name));
+const webReply=data=>({ok:true,status:200,headers:{get:()=> 'application/json'},text:async()=>JSON.stringify(data)});
 const base={id:'11111111-1111-4111-8111-111111111111',kind:'HUMEDADES',date:'2026-10-06',lugar:'OLMOS',fundo:'CHALLAPAMPA',modulo:'M13',lote:'M13T04-87',prof:20,humedad:28};
 function backend(){
  const props={},notes={},formats={},sheets={};let reads=0,held=false;
@@ -83,9 +85,10 @@ test('Cliente rechaza un código compartido como principal y conserva el nombre 
   if(name.endsWith('geojson?raw'))return {default:JSON.stringify(geo)};
   if(name==='./riego-model')return model;
   if(name==='./access')return access;
+  if(name==='./drive-transport')return transport;
   if(name==='./riego-offline')return {cached:async k=>state.get(k),cache:async(k,v)=>state.set(k,v),clearAccessState:async()=>{state.delete('session');state.delete('activated');}};
   return require(name);
- },{AbortSignal,fetch:async(_url,options)=>{calls++;const p=JSON.parse(options.body);assert.equal(p.principal,true);assert.equal(p.name,'Luis Pineda');return {ok:true,json:async()=>({ok:true,token:'a'.repeat(64),owner:true,name:p.name,units:{}})};}});
+ },{AbortSignal,fetch:async(_url,options)=>{calls++;const p=JSON.parse(options.body);assert.equal(p.principal,true);assert.equal(p.name,'Luis Pineda');return webReply({ok:true,token:'a'.repeat(64),owner:true,name:p.name,units:{}});}});
  await assert.rejects(()=>client.api('activate',{code:'ABCDEFGH2345',principal:true,name:'Luis Pineda'}));assert.equal(calls,0);assert(!state.has('session'));
  await client.api('activate',{code:'A'.repeat(64),principal:true,name:' Luis   Pineda '});assert.equal(calls,1);
  const snapshot=await client.api('records');assert.equal(snapshot.owner,true);assert.equal(snapshot.profileName,'Luis Pineda');assert.equal(snapshot.geojson.features.length,254);
@@ -120,9 +123,81 @@ test('Cliente conserva los registros de un lote confirmado cuando falla el lote 
   if(name.endsWith('geojson?raw'))return {default:JSON.stringify(geo)};
   if(name==='./riego-model')return model;
   if(name==='./access')return access;
+  if(name==='./drive-transport')return transport;
   if(name==='./riego-offline')return {cached:async k=>state.get(k),cache:async(k,v)=>state.set(k,v),clearAccessState:async()=>{state.delete('session');state.delete('activated');}};
   return require(name);
- },{AbortSignal,fetch:async(_url,options)=>{calls++;if(calls===2)throw new Error('Sin conexión');const p=JSON.parse(options.body);return {ok:true,json:async()=>({ok:true,acknowledged:p.records.map(r=>r.id),records:p.records,units:{}})};}});
+ },{AbortSignal,fetch:async(_url,options)=>{calls++;if(calls===2)throw new Error('Sin conexión');const p=JSON.parse(options.body);return webReply({ok:true,acknowledged:p.records.map(r=>r.id),records:p.records,units:{}});}});
  await assert.rejects(()=>client.api('sync',{}));
  assert.equal(state.get('snapshot').records.filter(r=>r.synced).length,100);assert.equal(state.get('snapshot').records.filter(r=>!r.synced).length,50);
+});
+
+test('Android envía JSON como texto y lee la respuesta de Google con GET sin reenviar credenciales',async()=>{
+ const endpoint='https://script.google.com/macros/s/TEST/exec',content='https://script.googleusercontent.com/macros/echo?user_content_key=RESULT';
+ const payload={action:'activate',code:'A'.repeat(64),principal:true,name:'Luis Pineda'},calls=[];
+ const result=await transport.postDriveNative(endpoint,payload,{request:async options=>{
+  calls.push(options);
+  if(calls.length===1)return {status:302,headers:{Location:content},url:endpoint,data:'Moved'};
+  return {status:200,headers:{'Content-Type':'application/json'},url:content,data:{ok:true,owner:true,token:'a'.repeat(64)}};
+ }});
+ assert.equal(result.ok,true);assert.equal(calls.length,2);
+ assert.equal(calls[0].method,'POST');assert.equal(calls[0].url,endpoint);assert.equal(calls[0].data,JSON.stringify(payload));assert.equal(calls[0].headers['Content-Type'],'text/plain;charset=UTF-8');assert.equal(calls[0].disableRedirects,true);
+ assert.equal(calls[1].method,'GET');assert.equal(calls[1].url,content);assert(!('data' in calls[1]));assert(!JSON.stringify(calls[1]).includes(payload.code));
+});
+test('La redirección dentro de la misma implementación conserva el POST; el resultado se lee una vez',async()=>{
+ const endpoint='https://script.google.com/macros/s/TEST/exec',calls=[];
+ const result=await transport.postDriveNative(endpoint,{action:'status',token:'a'.repeat(64)},{request:async options=>{
+  calls.push(options);
+  if(calls.length===1)return {status:302,headers:{location:'/macros/u/0/s/TEST/exec'},url:endpoint,data:''};
+  if(calls.length===2)return {status:303,headers:{LOCATION:'https://script.googleusercontent.com/macros/echo?user_content_key=RESULT'},url:options.url,data:''};
+  return {status:200,headers:{'content-type':'application/json'},url:options.url,data:'\uFEFF{"ok":true,"owner":true}'};
+ }});
+ assert.equal(result.ok,true);assert.equal(calls.length,3);assert.deepEqual(calls.map(o=>o.method),['POST','POST','GET']);assert.equal(calls[0].data,calls[1].data);assert(!('data' in calls[2]));
+});
+test('Android rechaza destinos externos y páginas de inicio de sesión antes de enviarles datos',async()=>{
+ const endpoint='https://script.google.com/macros/s/TEST/exec';
+ for(const destination of ['https://accounts.google.com/signin','https://script.googleusercontent.com.evil.example/macros/echo','http://script.googleusercontent.com/macros/echo','https://script.google.com/macros/s/OTHER/exec','https://user:secret@script.googleusercontent.com/macros/echo']){
+  let calls=0;
+  await assert.rejects(()=>transport.postDriveNative(endpoint,{action:'activate',code:'A'.repeat(64)},{request:async()=>{calls++;return {status:302,headers:{Location:destination},url:endpoint,data:''};}}));
+  assert.equal(calls,1);
+ }
+});
+test('Un fallo leyendo el resultado nunca vuelve a enviar un código de activación de un solo uso',async()=>{
+ const calls=[],endpoint='https://script.google.com/macros/s/TEST/exec';
+ await assert.rejects(()=>transport.postDriveNative(endpoint,{action:'activate',code:'A'.repeat(64)},{request:async options=>{
+  calls.push(options);if(calls.length===1)return {status:302,headers:{location:'https://script.googleusercontent.com/macros/echo?user_content_key=RESULT'},url:endpoint,data:''};
+  throw new Error('Se perdió la conexión al leer el resultado');
+ }}));
+ assert.equal(calls.length,2);assert.equal(calls.filter(o=>o.method==='POST').length,1);
+});
+test('Las respuestas no válidas indican su tipo sin copiar su contenido privado al error',()=>{
+ const meta={status:200,url:'https://script.googleusercontent.com/macros/echo?user_content_key=PRIVATE_KEY',contentType:'text/html;charset=utf-8'};
+ for(const body of ['<!doctype html><html><body>PRIVATE_TOKEN</body></html>','',null,[],{other:'PRIVATE_TOKEN'}]){
+  assert.throws(()=>transport.parseDriveReply(body,meta),error=>{assert(!error.message.includes('PRIVATE_TOKEN'));assert(!error.message.includes('PRIVATE_KEY'));assert(error.message.includes('HTTP 200'));return true;});
+ }
+ assert.equal(transport.parseDriveReply('{"ok":false,"code":"ACCESS_DENIED"}',{status:200}).code,'ACCESS_DENIED');
+ assert.equal(transport.parseDriveReply(JSON.stringify(JSON.stringify({ok:true})),{status:200}).ok,true);
+});
+test('Android limita los saltos de redirección y rechaza un Location ausente',async()=>{
+ const endpoint='https://script.google.com/macros/s/TEST/exec';let calls=0;
+ await assert.rejects(()=>transport.postDriveNative(endpoint,{action:'status'},{request:async()=>{calls++;return {status:302,headers:{Location:endpoint},url:endpoint,data:''};}}));assert.equal(calls,5);
+ await assert.rejects(()=>transport.postDriveNative(endpoint,{action:'status'},{request:async()=>({status:302,headers:{},url:endpoint,data:''})}));
+});
+test('La activación nativa conserva nombre y sesión después de leer la redirección de Google',async()=>{
+ const endpoint='https://script.google.com/macros/s/TEST/exec',state=new Map([['endpoint',endpoint]]),calls=[];
+ const geo=JSON.parse(fs.readFileSync(path.join(ROOT,'data/lotes-mapa.geojson')));
+ const client=tsModule('src/lib/api.ts',name=>{
+  if(name==='@capacitor/core')return {Capacitor:{isNativePlatform:()=>true},CapacitorHttp:{request:async options=>{
+   calls.push(options);
+   if(calls.length===1)return {status:302,headers:{Location:'https://script.googleusercontent.com/macros/echo?user_content_key=RESULT'},url:endpoint,data:''};
+   const p=JSON.parse(calls[0].data);assert.equal(p.action,'activate');assert.equal(p.principal,true);assert.equal(p.name,'Luis Pineda');
+   return {status:200,headers:{'Content-Type':'application/json'},url:options.url,data:JSON.stringify({ok:true,token:'a'.repeat(64),owner:true,name:p.name,units:{}})};
+  }}};
+  if(name.endsWith('geojson?raw'))return {default:JSON.stringify(geo)};
+  if(name==='./riego-model')return model;if(name==='./access')return access;if(name==='./drive-transport')return transport;
+  if(name==='./riego-offline')return {cached:async k=>state.get(k),cache:async(k,v)=>state.set(k,v),clearAccessState:async()=>{state.delete('session');state.delete('activated');}};
+  return require(name);
+ });
+ await client.api('activate',{code:'A'.repeat(64),principal:true,name:' Luis   Pineda '});
+ assert.equal(calls.length,2);assert.equal(state.get('session').token,'a'.repeat(64));assert.equal(state.get('activated'),true);
+ const snapshot=await client.api('records');assert.equal(snapshot.owner,true);assert.equal(snapshot.profileName,'Luis Pineda');assert.equal(snapshot.geojson.features.length,254);
 });
