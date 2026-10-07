@@ -6,6 +6,7 @@ const humedades=tsModule('src/lib/humedades.ts',name=>name==='./riego-model'?mod
 const compactacion=tsModule('src/lib/compactacion.ts',name=>name==='./riego-model'?model:require(name),{crypto});
 const locations=tsModule('src/lib/locations.ts',name=>name==='./riego-model'?model:require(name));
 const presiones=tsModule('src/lib/presiones.ts',name=>name==='./riego-model'?model:name==='./locations'?locations:require(name),{crypto});
+const analytics=tsModule('src/lib/riego-analytics.ts',name=>name==='./riego-model'?model:name==='./humedades'?humedades:require(name));
 const transport=tsModule('src/lib/drive-transport.ts',name=>name==='./access'?access:require(name));
 const connection=tsModule('src/lib/connection.ts',name=>name==='../../package.json'?require('../package.json'):require(name));
 const webReply=data=>({ok:true,status:200,headers:{get:()=> 'application/json'},text:async()=>JSON.stringify(data)});
@@ -270,6 +271,93 @@ test('GeoJSON original: 254 identidades únicas y coincidencia de ubicación com
  assert.equal(new Set(locations.map(l=>[l.lugar,l.fundo,l.modulo,l.lote].join('|'))).size,254);
  const f=geo.features[0],loc=model.featureLocation(f);assert(model.matchesFeature({...base,...loc},f));assert(!model.matchesFeature({...base,...loc,fundo:'OTRO'},f));
  assert.equal(model.mean([0,20,40]),20);assert.equal(model.mean([]),null);
+});
+test('Colores de Compactación y Presiones respetan los límites, decimales y cero; sin datos usa gris',()=>{
+ const {red,blue,green,empty}=analytics.RANGE_COLORS;
+ for(const [value,color] of [[0,red],[40,red],[40.5,blue],[41,blue],[60,blue],[60.01,green],[100,green]])assert.equal(analytics.valueColor('COMPACTACION',value),color);
+ for(const [value,color] of [[0,red],[7,red],[7.5,red],[8,green],[12,green],[12.01,blue],[20,blue]])assert.equal(analytics.valueColor('PRESIONES',value),color);
+ for(const kind of ['COMPACTACION','PRESIONES','HUMEDADES'])for(const value of [null,undefined,NaN,Infinity])assert.equal(analytics.valueColor(kind,value),empty);
+ assert.notEqual(analytics.valueColor('HUMEDADES',0),empty);
+});
+test('Compactación promedia las 18 lecturas de P1–P6 y permite consultar M1, M2 y M3',()=>{
+ const {context,values}=compactionFixture(),records=compactacion.makeCompactionRecords(context,values);
+ const total=analytics.buildRanking(records,'COMPACTACION','lot')[0];assert.equal(total.count,18);assert.equal(total.value,66/18);
+ for(const [metric,expected] of [['m1',2.5],['m2',4],['m3',4.5]]){const result=analytics.buildRanking(records,'COMPACTACION','module',metric)[0];assert.equal(result.value,expected);assert.equal(result.count,6);}
+ const other=compactacion.makeCompactionRecords({...context,lote:'OTRO LOTE'},Object.fromEntries(['P1','P2','P3','P4','P5','P6'].map(point=>[point,{m1:'100',m2:'100',m3:'100'}])));
+ const ranked=analytics.buildRanking([...records,...other],'COMPACTACION','lot');assert.equal(ranked[0].value,100);assert.equal(ranked[1].value,66/18);
+});
+test('Ranking y mapa usan el mismo promedio por lote o módulo y ponderan todas las lecturas',()=>{
+ const geo=JSON.parse(fs.readFileSync(path.join(ROOT,'data/lotes-mapa.geojson'))),features=geo.features.filter(feature=>{const l=model.featureLocation(feature);return l.lugar==='OLMOS'&&l.fundo==='CHALLAPAMPA'&&l.modulo==='M11';});
+ const l1=model.featureLocation(features[0]),l2=model.featureLocation(features[1]);
+ const compact=(location,puntos,m1,m2,m3)=>({...base,...location,kind:'COMPACTACION',puntos,m1,m2,m3});
+ const records=[compact(l1,'P1',10,20,30),compact(l1,'P2',40,50,60),compact(l2,'P1',100,100,100)];
+ const modules=analytics.buildRanking(records,'COMPACTACION','module');assert.equal(modules.length,1);assert.equal(modules[0].value,510/9);assert.equal(modules[0].count,9);
+ const lots=analytics.buildRanking(records,'COMPACTACION','lot');assert.equal(lots.length,2);assert.equal(lots[0].value,100);assert.equal(lots[1].value,35);
+ assert.equal(analytics.featureAverage(features[0],lots,'lot'),35);assert.equal(analytics.featureAverage(features[1],lots,'lot'),100);assert.equal(analytics.featureAverage(features[2],lots,'lot'),null);
+ for(const feature of features){assert.equal(analytics.featureAverage(feature,modules,'module'),510/9);assert.equal(analytics.valueColor('COMPACTACION',analytics.featureAverage(feature,modules,'module')),analytics.RANGE_COLORS.blue);}
+ const pressure=[{...base,...l1,kind:'PRESIONES',lado:'ESTE',presion:0},{...base,...l1,kind:'PRESIONES',lado:'OESTE',presion:10},{...base,...l2,kind:'PRESIONES',lado:'ESTE',presion:15},{...base,...l2,kind:'PRESIONES',lado:'OESTE',presion:15}];
+ const pressureLots=analytics.buildRanking(pressure,'PRESIONES','lot'),pressureModules=analytics.buildRanking(pressure,'PRESIONES','module');
+ assert.equal(analytics.featureAverage(features[0],pressureLots,'lot'),5);assert.equal(analytics.featureAverage(features[1],pressureLots,'lot'),15);assert.equal(pressureModules[0].value,10);
+ assert.equal(analytics.valueColor('PRESIONES',analytics.featureAverage(features[0],pressureLots,'lot')),analytics.RANGE_COLORS.red);assert.equal(analytics.valueColor('PRESIONES',analytics.featureAverage(features[1],pressureLots,'lot')),analytics.RANGE_COLORS.blue);
+});
+test('Los rankings mantienen separadas las identidades de módulos y lotes de otros fundos y sedes',()=>{
+ const pressure=(lugar,fundo,presion)=>({...base,kind:'PRESIONES',lugar,fundo,modulo:'M01',lote:'LOTE01',lado:'ESTE',presion});
+ const records=[pressure('OLMOS','FUNDO A',0),pressure('OLMOS','FUNDO B',10),pressure('MOTUPE','FUNDO A',20)];
+ for(const level of ['lot','module']){
+  const rows=analytics.buildRanking(records,'PRESIONES',level);assert.equal(rows.length,3);assert.equal(new Set(Array.from(rows,row=>row.key)).size,3);assert.deepEqual(Array.from(rows,row=>row.value),[20,10,0]);
+  const feature={type:'Feature',properties:{LUGAR:'olmos',FUNDO:'fundo a',MODULO:'m01',LOTE:'lote01'}};assert.equal(analytics.featureAverage(feature,rows,level),0);
+  assert.equal(analytics.featureAverage({...feature,properties:{...feature.properties,FUNDO:'OTRO'}},rows,level),null);
+ }
+});
+test('Filtros de fecha y ubicación afectan el ranking y el mapa; Lado separa Este y Oeste',()=>{
+ const geo=JSON.parse(fs.readFileSync(path.join(ROOT,'data/lotes-mapa.geojson'))),feature=geo.features.find(feature=>{const l=model.featureLocation(feature);return l.lugar==='OLMOS'&&l.fundo==='CHALLAPAMPA'&&l.modulo==='M11';}),location=model.featureLocation(feature);
+ const filters={...analytics.defaultAnalyticsFilters(),site:'olmos',farm:'Challapampa',module:'m11',lot:analytics.locationKey(location),from:'2026-10-01',to:'2026-10-07'};
+ const records=[{...base,...location,kind:'PRESIONES',date:'2026-10-01',lado:'ESTE',presion:0},{...base,...location,kind:'PRESIONES',date:'2026-10-07',lado:'OESTE',presion:12},{...base,...location,kind:'PRESIONES',date:'2026-09-30',lado:'ESTE',presion:100},{...base,...location,kind:'PRESIONES',date:'2026-10-08',lado:'ESTE',presion:100},{...base,...location,kind:'PRESIONES',lugar:'MOTUPE',lado:'ESTE',presion:100},{...base,...location,kind:'PRESIONES',fundo:'OTRO',lado:'ESTE',presion:100},{...base,...location,kind:'PRESIONES',modulo:'M12',lado:'ESTE',presion:100},{...base,...location,kind:'PRESIONES',lote:'OTRO',lado:'ESTE',presion:100},{...base,...location,kind:'HUMEDADES',humedad:100}];
+ const selected=analytics.filterAnalyticsRecords(records,'PRESIONES',filters);assert.equal(selected.length,2);assert.equal(analytics.buildRanking(selected,'PRESIONES','lot')[0].value,6);
+ const mapped=analytics.filterAnalyticsGeo(geo,filters);assert.equal(mapped.features.length,1);assert.equal(analytics.featureAverage(mapped.features[0],analytics.buildRanking(selected,'PRESIONES','lot'),'lot'),6);
+ assert.equal(analytics.buildRanking(analytics.filterAnalyticsRecords(records,'PRESIONES',{...filters,side:'este'}),'PRESIONES','lot')[0].value,0);
+ assert.equal(analytics.buildRanking(analytics.filterAnalyticsRecords(records,'PRESIONES',{...filters,side:'OESTE'}),'PRESIONES','lot')[0].value,12);
+ assert.equal(analytics.filterAnalyticsGeo(geo,{...filters,lot:'all'}).features.length,23);
+});
+test('Cambiar sede, fundo o módulo en Gráficas limpia los filtros dependientes y conserva el periodo',()=>{
+ const state={...analytics.defaultAnalyticsFilters(),site:'OLMOS',farm:'CHOLOCAL',module:'M08',lot:'LOTE',from:'2026-10-01',to:'2026-10-07',level:'lot',metric:'m2'};
+ const site=analytics.updateAnalyticsFilters(state,'site','MOTUPE');assert.equal(site.farm,'all');assert.equal(site.module,'all');assert.equal(site.lot,'all');
+ const farm=analytics.updateAnalyticsFilters(state,'farm','CHALLAPAMPA');assert.equal(farm.module,'all');assert.equal(farm.lot,'all');assert.equal(farm.site,'OLMOS');
+ const module=analytics.updateAnalyticsFilters(state,'module','M07');assert.equal(module.lot,'all');assert.equal(module.farm,'CHOLOCAL');
+ for(const result of [site,farm,module]){assert.equal(result.from,state.from);assert.equal(result.to,state.to);assert.equal(result.level,'lot');assert.equal(result.metric,'m2');}
+ assert.equal(state.lot,'LOTE');
+});
+test('Evolución semanal distingue años ISO, calcula promedios por profundidad y deja huecos sin datos',()=>{
+ const records=[{...base,date:'2026-12-31',prof:20,humedad:0},{...base,date:'2027-01-01',prof:20,humedad:20},{...base,date:'2027-01-01',prof:40,humedad:40},{...base,date:'2027-01-04',prof:20,humedad:30},{...base,date:'2027-01-18',prof:20,humedad:50}];
+ const rows=analytics.weeklyHumidity(records,[20,40,60]);assert.equal(rows.length,4);
+ assert.deepEqual(Array.from(rows,row=>row.label),['S53 · 2026','S1 · 2027','S2 · 2027','S3 · 2027']);assert.deepEqual(Array.from(rows,row=>row.d20),[10,30,null,50]);assert.deepEqual(Array.from(rows,row=>row.d40),[40,null,null,null]);assert(rows.every(row=>row.d60===null));
+ assert.equal(rows[0].key,'2026-12-28');assert.equal(analytics.weeklyHumidity([],[]).length,0);
+});
+test('Promedio por fundo y matriz módulo–profundidad conservan cero, ausencia y ubicación completa',()=>{
+ const records=[{...base,fundo:'FUNDO A',modulo:'M01',prof:20,humedad:0},{...base,fundo:'FUNDO A',modulo:'M01',prof:20,humedad:20},{...base,fundo:'FUNDO A',modulo:'M01',prof:40,humedad:30},{...base,fundo:'FUNDO A',modulo:'M02',prof:20,humedad:10},{...base,fundo:'FUNDO B',modulo:'M01',prof:20,humedad:80},{...base,lugar:'MOTUPE',fundo:'FUNDO A',modulo:'M01',prof:80,humedad:100}];
+ const farms=analytics.humidityFarmMeans(records);assert.equal(farms.length,3);assert.deepEqual(Array.from(farms,row=>row.value),[100,80,15]);
+ const matrix=analytics.humidityModuleMatrix(records,[20,40,60,80]);assert.equal(matrix.length,4);const row=matrix.find(row=>row.location.lugar==='OLMOS'&&row.location.fundo==='FUNDO A'&&row.location.modulo==='M01');assert.equal(row.values[20],10);assert.equal(row.values[40],30);assert.equal(row.values[60],null);assert.equal(row.values[80],null);
+ const zero=analytics.humidityModuleMatrix([{...base,prof:20,humedad:0}],[20,40]);assert.equal(zero[0].values[20],0);assert.equal(zero[0].values[40],null);
+ assert.deepEqual(Array.from(analytics.analyticsDepths(records,'all')),[20,40,60,80]);assert.deepEqual(Array.from(analytics.analyticsDepths([], 'OLMOS')),[20,40,60]);assert.deepEqual(Array.from(analytics.analyticsDepths([], 'MOTUPE')),[20,40,60,80]);
+});
+test('Gráficas muestra solo los gráficos elegidos, filtros nativos, rangos visibles y tabla de promedios',()=>{
+ const React=require('react'),{renderToStaticMarkup}=require('react-dom/server');
+ const Picker=tsModule('src/components/field-picker.tsx').default;
+ const Legend=tsModule('src/components/range-legend.tsx',name=>name==='@/lib/riego-analytics'?analytics:require(name)).default;
+ const FieldMap=tsModule('src/components/riego-map.tsx',name=>name==='@/lib/riego-model'?model:name==='@/lib/riego-analytics'?analytics:require(name)).default;
+ const Components=tsModule('src/components/riego-analytics.tsx',name=>({'@/components/field-picker':{default:Picker},'@/components/range-legend':{default:Legend},'@/components/riego-map':{default:FieldMap},'@/lib/riego-model':model,'@/lib/riego-analytics':analytics,'@/lib/locations':locations}[name]??require(name)));
+ const geo=JSON.parse(fs.readFileSync(path.join(ROOT,'data/lotes-mapa.geojson'))),filters=analytics.defaultAnalyticsFilters(),props={geojson:geo,records:[],units:{compactacion:'kg/cm²',presion:'psi'},filters,onFiltersChange(){},onKindChange(){}};
+ const humidity=renderToStaticMarkup(React.createElement(Components.default,{...props,kind:'HUMEDADES'}));
+ for(const title of ['Evolución semanal por profundidad','Promedio por fundo','Matriz módulo–profundidad'])assert(humidity.includes(`<h3>${title}</h3>`));
+ assert(!humidity.includes('<h3>Ranking'));assert(!humidity.includes('Mapa de compactación'));assert(!humidity.includes('Promedio M1'));
+ const compact=renderToStaticMarkup(React.createElement(Components.default,{...props,kind:'COMPACTACION'}));
+ for(const title of ['Mapa de compactación','Ranking por módulo'])assert(compact.includes(`<h3>${title}</h3>`));
+ assert(compact.includes('Promedio M1, M2 y M3'));assert(compact.includes('0 a 40'));assert(compact.includes('Mayor de 40 hasta 60'));assert(compact.includes('Mayor de 60'));assert(compact.includes('Sin datos'));assert(!compact.includes('Evolución semanal'));
+ const pressure=renderToStaticMarkup(React.createElement(Components.default,{...props,kind:'PRESIONES',filters:{...filters,level:'lot'}}));
+ assert(pressure.includes('<h3>Mapa de presiones</h3>'));assert(pressure.includes('<h3>Ranking por lote</h3>'));assert(pressure.includes('Menor de 8'));assert(pressure.includes('8 a 12'));assert(pressure.includes('Mayor de 12'));assert(pressure.includes('Todos los lados'));assert(!pressure.includes('Evolución semanal'));assert(!pressure.includes('Promedio M1'));
+ for(const html of [humidity,compact,pressure]){for(const label of ['Apartado','Sede','Fundo','Módulo','Lote'])assert(html.includes(`<select aria-label="${label}"`));assert(html.includes('value="M11"'));assert(html.includes('value="M12"'));assert(!html.includes('datalist'));}
+ const matrix=renderToStaticMarkup(React.createElement(Components.HumidityMatrix,{records:[{...base,humedad:0}],depths:[20,40]}));assert(matrix.includes('scope="row"'));assert(matrix.includes('20 cm'));assert(matrix.includes('40 cm'));assert(matrix.includes('>0</td>'));assert(matrix.includes('>—</td>'));
+ const ranking=renderToStaticMarkup(React.createElement(Components.RankingValues,{rows:analytics.buildRanking([{...base,kind:'PRESIONES',lado:'ESTE',presion:7.5}],'PRESIONES','lot'),unit:'psi'}));assert(ranking.includes('7.5'));assert(ranking.includes('CHALLAPAMPA'));assert(ranking.includes('Promedio (psi)'));
 });
 test('QR limita el servidor a Apps Script HTTPS y conserva el código',()=>{
  const endpoint='https://script.google.com/macros/s/TEST_DEPLOYMENT/exec';

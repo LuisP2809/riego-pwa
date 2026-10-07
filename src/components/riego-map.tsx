@@ -1,19 +1,32 @@
 "use client";
-import { useEffect, useRef } from "react";
+import {useEffect,useRef,useState} from "react";
 import type L from "leaflet";
-import { matchesFeature, featureLocation, mean, reading, type GeoCollection, type Measurement } from "@/lib/riego-model";
-export default function RiegoMap({geojson,records,metric,unit}:{geojson:GeoCollection;records:Measurement[];metric:string;unit:string}){
- const element=useRef<HTMLDivElement>(null);
- useEffect(()=>{let cancelled=false,current:L.Map|null=null;
-  void import("leaflet").then(module=>{
-   if(cancelled||!element.current)return;const lib=module.default;current=lib.map(element.current,{zoomControl:true});
-   lib.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',maxZoom:19}).addTo(current);
-   const avgs=geojson.features.map(f=>mean(records.filter(r=>matchesFeature(r,f)).map(r=>reading(r,metric)).filter((v):v is number=>typeof v==="number"))),nums=avgs.filter((v):v is number=>v!==null),lo=nums.length?Math.min(...nums):0,hi=nums.length?Math.max(...nums):0;
-   const group=lib.geoJSON(geojson as Parameters<typeof lib.geoJSON>[0],{
-    style(feature){const v=avgs[geojson.features.indexOf(feature as unknown as GeoCollection["features"][0])];const t=v==null||hi===lo?0.5:(v-lo)/(hi-lo);return {color:v==null?"#8795a1":"#075b4c",weight:1.5,fillColor:v==null?"#dbe2e8":`hsl(${190-t*45} 72% ${74-t*34}%)`,fillOpacity:.74};},
-    onEachFeature(feature,layer){const f=feature as unknown as GeoCollection["features"][0],loc=featureLocation(f),value=mean(records.filter(r=>matchesFeature(r,f)).map(r=>reading(r,metric)).filter((v):v is number=>typeof v==="number"));const div=document.createElement("div"),title=document.createElement("strong"),path=document.createElement("p"),result=document.createElement("p");title.textContent=loc.lote;path.textContent=[loc.lugar,loc.fundo,loc.modulo].filter(Boolean).join(" · ");result.textContent=value==null?"Sin mediciones en este filtro":`Promedio: ${value.toLocaleString("es-PE",{maximumFractionDigits:2})}${unit?" "+unit:""}`;div.appendChild(title);div.appendChild(path);div.appendChild(result);layer.bindPopup(div);}
-   }).addTo(current);if(group.getBounds().isValid())current.fitBounds(group.getBounds(),{padding:[24,24],maxZoom:17});setTimeout(()=>current?.invalidateSize(),100);
-  }).catch(()=>{});return()=>{cancelled=true;current?.remove();};
- },[geojson,records,metric,unit]);
- return <div ref={element} className="map-surface" aria-label="Mapa de lotes y mediciones"/>;
+import {featureLocation,type GeoCollection,type Measurement,type Kind} from "@/lib/riego-model";
+import {buildRanking,featureAverage,locationKey,valueColor,type RankLevel} from "@/lib/riego-analytics";
+
+type Props={geojson:GeoCollection;records:Measurement[];metric:string;unit:string;kind:Kind;level?:RankLevel;basemap?:boolean};
+export default function RiegoMap({geojson,records,metric,unit,kind,level="lot",basemap=true}:Props){
+  const element=useRef<HTMLDivElement>(null),[error,setError]=useState("");
+  useEffect(()=>{let cancelled=false,current:L.Map|null=null;setError("");
+    void import("leaflet").then(module=>{
+      if(cancelled||!element.current)return;
+      const lib=module.default;current=lib.map(element.current,{zoomControl:true});
+      if(basemap)lib.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',maxZoom:19}).addTo(current);
+      const rows=buildRanking(records,kind,level,metric),values=new Map(geojson.features.map(feature=>[locationKey(featureLocation(feature),level),featureAverage(feature,rows,level)]));
+      const group=lib.geoJSON(geojson as Parameters<typeof lib.geoJSON>[0],{
+        style(feature){const value=values.get(locationKey(featureLocation(feature as unknown as GeoCollection["features"][0]),level))??null;return {color:"#87958e",weight:1,fillColor:valueColor(kind,value),fillOpacity:basemap ? 0.78 : 0.92};},
+        onEachFeature(feature,layer){
+          const f=feature as unknown as GeoCollection["features"][0],location=featureLocation(f),value=values.get(locationKey(featureLocation(f),level))??null;
+          const box=document.createElement("div"),title=document.createElement("strong"),path=document.createElement("p"),result=document.createElement("p");
+          title.textContent=location.lote;path.textContent=[location.lugar,location.fundo,location.modulo].filter(Boolean).join(" · ");
+          result.textContent=value==null?"Sin lecturas en este filtro":`Promedio ${level==="module"?"del módulo":"del lote"}: ${value.toLocaleString("es-PE",{maximumFractionDigits:2})}${unit?" "+unit:""}`;
+          box.append(title,path,result);layer.bindPopup(box);
+        }
+      }).addTo(current);
+      if(group.getBounds().isValid())current.fitBounds(group.getBounds(),{padding:[24,24],maxZoom:17});
+      if(typeof ResizeObserver!=="undefined"){const observer=new ResizeObserver(()=>current?.invalidateSize());observer.observe(element.current);current.on("unload",()=>observer.disconnect());}
+    }).catch(()=>{if(!cancelled)setError("No se pudo abrir el mapa. Vuelve a entrar al apartado.");});
+    return()=>{cancelled=true;current?.remove();};
+  },[geojson,records,metric,unit,kind,level,basemap]);
+  return <div className={`field-map ${basemap?"":"field-map-plain"}`}><div ref={element} className="map-surface" aria-label="Mapa de lotes y promedios"/>{error&&<p role="alert" className="map-note">{error}</p>}</div>;
 }

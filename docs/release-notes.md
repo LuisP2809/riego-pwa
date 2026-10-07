@@ -1,13 +1,20 @@
-# Riego 0.1.9
+# Riego 0.1.10
 
-Presiones muestra **todos los lotes del módulo seleccionado**, cada uno con sus filas **Este** y **Oeste** y la casilla de **Presión final** al costado. Basta seleccionar fecha, lugar, fundo y módulo. Cada título muestra el número del lote y su código completo; la unidad configurada aparece en el encabezado.
+**Gráficas** incorpora los análisis seleccionados, con filtros por sede, fundo, módulo, lote y periodo.
 
-**OLMOS → CHALLAPAMPA → M11** muestra los 23 lotes del mapa original, comenzando por Lote 39 y Lote 40, con 46 casillas en total. Incluye el lote 42B y los lotes 101–104. El listado se filtra por sede, fundo y módulo.
+Humedades muestra **Evolución semanal por profundidad**, **Promedio por fundo** y **Matriz módulo–profundidad**. Las profundidades de Olmos son 20, 40 y 60 cm, y Motupe incluye 80 cm. La evolución usa semanas ISO y deja huecos si no hay lecturas; la matriz conserva los ceros y distingue las profundidades sin datos.
 
-**Guardar presiones** valida y guarda juntas las lecturas ingresadas en una transacción local. Puedes guardar por partes: las casillas vacías se omiten y el cero es una medición válida. Cada lectura se envía como una fila en las columnas originales de PRESIONES, con LADO igual a ESTE u OESTE. Los valores negativos o no numéricos se rechazan antes de guardar el conjunto.
+Compactación y Presiones muestran un **ranking por módulo o por lote acompañado del mapa de polígonos**, con fondo blanco como la referencia. Mapa y ranking comparten los filtros y el promedio; los polígonos sin datos aparecen grises. Puedes tocar un lote en el mapa para consultar el promedio y abrir la tabla de valores del ranking.
 
-Después de guardar se vacían las lecturas y se conserva la fecha y el módulo. Cambiar fecha, sede, fundo o módulo limpia las casillas. Humedades conserva sus profundidades por sede; Compactación conserva los seis puntos con M1, M2 y M3. Ambos mantienen el selector de lote individual.
+| Apartado | Rojo | Azul | Verde |
+| --- | --- | --- | --- |
+| Compactación | 0 a 40 inclusive | Mayor de 40 hasta 60 inclusive | Mayor de 60 |
+| Presiones | Menor de 8 | Mayor de 12 | 8 a 12 inclusive |
 
-Instala **Riego-0.1.9.apk** sobre la versión actual, sin desinstalar ni borrar datos, para conservar el acceso y los registros. No se requiere volver a implementar Apps Script.
+El último bloque solicitado se interpreta como **Presiones**, con sus límites de 0–7, 8–12 y mayores de 12. Los decimales se clasifican sin huecos: 40.5 de compactación es azul y 7.5 de presión es rojo. Compactación promedia M1, M2 y M3 de los puntos registrados; puedes consultar cada lectura por separado. Presiones incluye Este y Oeste o el lado seleccionado. Los promedios del módulo incluyen todas las lecturas de sus lotes dentro del filtro.
 
-Se ejecutan 38 pruebas de captura, selectores, acceso, transporte, sincronización y mapa, además de la compilación web y Android. Las nuevas pruebas verifican el módulo M11 completo, las 46 casillas, lecturas parciales, validación, columnas originales, registros previos y reintentos sin duplicar. Las pruebas de Apps Script y HTTP son simuladas; la revisión visual, teclado y sincronización desde el celular requieren la comprobación del propietario. La compilación verifica la firma de actualización, el ID y la versión Android de la APK y que se conserve adjustResize.
+En el celular, mapa y ranking se muestran uno debajo del otro. La matriz tiene desplazamiento propio cuando sea necesario. Las capturas de humedades por profundidad, compactación de seis puntos y presiones por lote y lado permanecen disponibles.
+
+Instala **Riego-0.1.10.apk** sobre la versión actual para conservar acceso y registros. No se requiere volver a implementar Apps Script.
+
+Se ejecutan **47 pruebas** de cálculos, filtros, colores, vistas, captura, acceso, transporte, sincronización y mapa, junto con la compilación web y Android. La compilación comprueba la firma de actualización, el ID, versión Android y adjustResize de la APK. Las pruebas de Apps Script y HTTP son simuladas; la revisión visual de las gráficas y la sincronización en un celular físico requieren la prueba del propietario.
