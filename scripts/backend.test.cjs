@@ -1,8 +1,9 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),crypto=require('node:crypto'),path=require('node:path'),ts=require('typescript');
 const ROOT=path.resolve(__dirname,'..');
-function tsModule(file,requireFn=require,extras={}){const exports={};const context={exports,module:{exports},require:requireFn,Date,Intl,URL,URLSearchParams,Math,Number,String,Set,Map,JSON,console,Error,...extras};vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(ROOT,file),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,context);return exports;}
+function tsModule(file,requireFn=require,extras={}){const exports={};const context={exports,module:{exports},require:requireFn,Date,Intl,URL,URLSearchParams,Math,Number,String,Set,Map,JSON,console,Error,...extras};vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(ROOT,file),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText,context);return exports;}
 const model=tsModule('src/lib/riego-model.ts'),access=tsModule('src/lib/access.ts');
 const humedades=tsModule('src/lib/humedades.ts',name=>name==='./riego-model'?model:require(name),{crypto});
+const locations=tsModule('src/lib/locations.ts',name=>name==='./riego-model'?model:require(name));
 const transport=tsModule('src/lib/drive-transport.ts',name=>name==='./access'?access:require(name));
 const connection=tsModule('src/lib/connection.ts',name=>name==='../../package.json'?require('../package.json'):require(name));
 const webReply=data=>({ok:true,status:200,headers:{get:()=> 'application/json'},text:async()=>JSON.stringify(data)});
@@ -69,6 +70,42 @@ test('El perfil completo se sincroniza en las columnas originales sin duplicarse
   assert.equal(row[3].toISOString().slice(0,10),record.date);assert.deepEqual(row.slice(4,8),[record.lugar,record.fundo,record.modulo,record.lote]);assert.equal(row[8],record.prof);assert.equal(row[9],record.humedad);
  }
  result=send();assert(result.ok,result.error);assert.equal(b.sheets.HUMEDADES.values.length,8);
+});
+test('Con CHOLOCAL M08 seleccionado siguen disponibles sus 13 lotes y los módulos M07, M08 y M10',()=>{
+ const rows=JSON.parse(fs.readFileSync(path.join(ROOT,'data/lotes-mapa.geojson'))).features.map(model.featureLocation);
+ const values={date:base.date,lugar:'OLMOS',fundo:'CHOLOCAL',modulo:'M08',lote:'M08T01-14'};
+ const catalog=[...rows,...rows.filter(r=>r.lote===values.lote)];
+ assert.deepEqual(Array.from(locations.locationOptions(catalog,values,'modulo')),['M07','M08','M10']);
+ const lots=Array.from(locations.locationOptions(catalog,values,'lote'));
+ assert.equal(lots.length,13);assert(lots.includes('M08T01-14'));assert(lots.includes('M08T01-15'));assert(lots.includes('M08T04-25'));
+ const cleared=locations.changeLocation(values,'lote','');
+ assert.deepEqual(Array.from(locations.locationOptions(catalog,cleared,'modulo')),['M07','M08','M10']);
+ assert.deepEqual(Array.from(locations.locationOptions(catalog,cleared,'lote')),lots);
+});
+test('Después de guardar se puede cambiar de lote o módulo sin modificar la evaluación anterior',()=>{
+ const context={date:base.date,lugar:'OLMOS',fundo:'CHOLOCAL',modulo:'M08',lote:'M08T01-14'},values={20:'28',40:'30',60:'32'};
+ const original=humedades.makeHumidityRecords(context,values),next=locations.changeLocation(context,'lote','M08T01-15');
+ const second=humedades.makeHumidityRecords(next,values),b=backend();
+ const result=b.call('sync',{token:b.owner.token,records:JSON.parse(JSON.stringify([...original,...second]))});
+ assert(result.ok,result.error);assert.equal(b.sheets.HUMEDADES.values.length,7);
+ assert(original.every(r=>r.lote==='M08T01-14'));assert(second.every(r=>r.lote==='M08T01-15'));assert.equal(context.lote,'M08T01-14');
+ const changed=locations.changeLocation(next,'modulo','M07');assert.equal(changed.lote,'');assert.equal(changed.date,context.date);assert.equal(changed.fundo,'CHOLOCAL');
+ assert.throws(()=>humedades.makeHumidityRecords(changed,values));
+ const cleared=locations.changeLocation(next,'lote','');assert.equal(locations.changeLocation(cleared,'modulo','M10').modulo,'M10');
+ const fundo=locations.changeLocation(next,'fundo','CHALLAPAMPA');assert.equal(fundo.modulo,'');assert.equal(fundo.lote,'');
+ const sede=locations.changeLocation(next,'lugar','MOTUPE');assert.equal(sede.fundo,'');assert.equal(sede.modulo,'');assert.equal(sede.lote,'');assert.equal(sede.date,context.date);
+});
+test('Los selectores muestran alternativas aunque ya haya lote elegido y permiten quitarlo sin bloquear el módulo',()=>{
+ const React=require('react'),{renderToStaticMarkup}=require('react-dom/server');
+ const Fields=tsModule('src/components/location-fields.tsx',name=>name==='@/lib/locations'?locations:require(name)).default;
+ const rows=JSON.parse(fs.readFileSync(path.join(ROOT,'data/lotes-mapa.geojson'))).features.map(model.featureLocation);
+ const values={lugar:'OLMOS',fundo:'CHOLOCAL',modulo:'M08',lote:'M08T01-14'};
+ const render=state=>renderToStaticMarkup(React.createElement(Fields,{rows,values:state,onChange(){}}));
+ for(const state of [values,locations.changeLocation(values,'lote','')]){
+  const html=render(state),module=html.match(/<select name="modulo"[^>]*>(.*?)<\/select>/)[0],lot=html.match(/<select name="lote"[^>]*>(.*?)<\/select>/)[0];
+  assert(!module.includes('disabled'));assert(module.includes('value="M07"'));assert(module.includes('value="M10"'));
+  assert(lot.includes('value="M08T01-15"'));assert(lot.includes('<option value=""'));assert(!html.includes('datalist'));
+ }
 });
 test('GeoJSON original: 254 identidades únicas y coincidencia de ubicación completa',()=>{
  const bytes=fs.readFileSync(path.join(ROOT,'data/lotes-mapa.geojson'));

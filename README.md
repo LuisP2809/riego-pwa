@@ -4,7 +4,7 @@ Aplicación Android y PWA para capturar y consultar **Humedades, Compactación y
 
 ## Descargar e instalar
 
-Abre **Releases** de este repositorio y descarga el archivo `Riego-0.1.5.apk`. Android puede pedir que permitas la instalación desde el navegador o el gestor de archivos. El identificador de la app es `pe.riego.campo`, independiente de Fenología y Fitosanidad.
+Abre **Releases** de este repositorio y descarga el archivo `Riego-0.1.6.apk`. Android puede pedir que permitas la instalación desde el navegador o el gestor de archivos. El identificador de la app es `pe.riego.campo`, independiente de Fenología y Fitosanidad.
 
 El workflow **APK descargable de Riego** compila cada cambio de `main`, guarda el APK en Actions y lo publica en Releases. Para publicar otra versión, aumenta `version` en `package.json`. No sobrescribe versiones ya publicadas con un cambio de código distinto.
 
@@ -32,7 +32,7 @@ Archivo identificado del propietario: `1JgvxAAqxLuPGjLkBoj6XpHl3f8n_8Q9ouavMOb8B
 
 Si pierdes el acceso del dispositivo principal, ejecuta **crearAccesoPropietario** en Apps Script para emitir un nuevo código inicial. Esto requiere acceso al proyecto de Google; la app no puede adjudicarse ese acceso por sí sola.
 
-La conexión del propietario fue publicada el 7 de octubre de 2026 y la función de configuración verificó los encabezados de las tres hojas. El enlace público se integra en el APK; las claves y los tokens no se incluyen en el repositorio. El propietario confirmó que ya pudo entrar el 7 de octubre de 2026. La sincronización desde el teléfono aún requiere su comprobación.
+La conexión del propietario fue publicada el 7 de octubre de 2026 y la función de configuración verificó los encabezados de las tres hojas. El enlace público se integra en el APK; las claves y los tokens no se incluyen en el repositorio. El propietario confirmó que ya pudo entrar el 7 de octubre de 2026. El propietario también confirmó pruebas de captura de humedades en el teléfono. La sincronización desde el teléfono aún requiere su comprobación.
 
 ## Capturar humedades
 
@@ -44,6 +44,8 @@ Selecciona una sola vez **Fecha, Sede, Fundo, Módulo y Lote**. Las casillas apa
 | MOTUPE | 20, 40, 60 y 80 cm |
 
 Cada fila muestra la profundidad y una casilla de humedad (%) al costado. Completa todas las lecturas de la sede con valores de 0 a 100 y pulsa **Guardar humedades**. Se guardan juntas en una transacción local; al sincronizar se envía una fila por profundidad con la misma fecha y ubicación. Cambiar cualquiera de los cinco datos vacía las humedades para otra evaluación. El guardado vacía las casillas y conserva la ubicación seleccionada.
+
+Fundo, Módulo y Lote usan listas desplegables con todas las opciones de la sede y los datos anteriores. Puedes escoger otro lote inmediatamente después de guardar, o cambiar de módulo directamente. Al cambiar de módulo se limpia el lote, y al cambiar de fundo se limpian módulo y lote. Para quitar un lote, vuelve a la opción **Selecciona un lote**; eso no bloquea el selector de módulo.
 
 ## Columnas originales
 
@@ -84,6 +86,6 @@ npm run apk:debug
 
 El proyecto Android se genera desde Capacitor y queda fuera de Git. `scripts/configure-android.mjs` aplica el nombre, ID, versión, Android mínimo 8, enlaces `riego://activate`, icono y desactiva la copia de seguridad automática de datos de dispositivos.
 
-`npm test` verifica perfiles de humedad de Olmos y Motupe, captura completa, decimal con coma, filas originales y reintentos sin duplicar, fechas y semana ISO, humedad cero y límites, identidad exacta del GeoJSON, QR y restricciones del servidor, acceso sin token, códigos de un uso, vencimiento, permisos de configuración, revocación, reintentos sin duplicar, conflictos sin filas parciales, las tres hojas, porcentajes, notas y conservación de lotes confirmados al interrumpirse la sincronización. También prueba el envío nativo, las redirecciones de Google, el rechazo de otros destinos, los errores de formato, la lectura fallida sin reenviar la activación y la conservación de la sesión nativa. Las pruebas también verifican que la comprobación use GET sin credenciales, que un servicio incorrecto o un fallo de red detenga la activación, que un enlace previo no cambie el destino del principal y que cliente y Apps Script simulado permitan activar al principal y entregar acceso a un segundo dispositivo. Las pruebas de Apps Script y HTTP son simuladas, sin leer ni escribir el archivo de Google.
+`npm test` verifica el cambio de lote y módulo después de guardar, las opciones completas y el reinicio de los campos dependientes, perfiles de humedad de Olmos y Motupe, captura completa, decimal con coma, filas originales y reintentos sin duplicar, fechas y semana ISO, humedad cero y límites, identidad exacta del GeoJSON, QR y restricciones del servidor, acceso sin token, códigos de un uso, vencimiento, permisos de configuración, revocación, reintentos sin duplicar, conflictos sin filas parciales, las tres hojas, porcentajes, notas y conservación de lotes confirmados al interrumpirse la sincronización. También prueba el envío nativo, las redirecciones de Google, el rechazo de otros destinos, los errores de formato, la lectura fallida sin reenviar la activación y la conservación de la sesión nativa. Las pruebas también verifican que la comprobación use GET sin credenciales, que un servicio incorrecto o un fallo de red detenga la activación, que un enlace previo no cambie el destino del principal y que cliente y Apps Script simulado permitan activar al principal y entregar acceso a un segundo dispositivo. Las pruebas de Apps Script y HTTP son simuladas, sin leer ni escribir el archivo de Google.
 
-La conexión se publicó y sus encabezados se comprobaron en Google. La respuesta HTTP real no se pudo verificar desde este navegador porque bloqueó la apertura del enlace de la implementación. El propietario confirmó que pudo entrar desde su teléfono. La captura de humedades, sincronización y cámara desde un celular físico requieren la prueba del propietario con la nueva APK.
+La conexión se publicó y sus encabezados se comprobaron en Google. La respuesta HTTP real no se pudo verificar desde este navegador porque bloqueó la apertura del enlace de la implementación. El propietario confirmó que pudo entrar desde su teléfono. El propietario confirmó pruebas de captura de humedades. La corrección de los selectores, sincronización y cámara desde un celular físico requieren la prueba del propietario con la nueva APK.
