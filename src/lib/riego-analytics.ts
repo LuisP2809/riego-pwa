@@ -65,6 +65,12 @@ export function analyticsDepths(records:readonly Measurement[],site:string):numb
   return [...new Set([...known,...records.filter(row=>row.kind==="HUMEDADES"&&typeof row.prof==="number").map(row=>row.prof!)])].sort((a,b)=>a-b);
 }
 export type WeeklyHumidityRow={key:string;label:string;[key:string]:string|number|null};
+export function humidityEvolutionScale(rows:readonly WeeklyHumidityRow[],depths:readonly number[]):{max:number;ticks:number[]}{
+  let highest=45;
+  for(const row of rows)for(const depth of depths){const value=row["d"+depth];if(typeof value==="number"&&Number.isFinite(value))highest=Math.max(highest,value);}
+  const max=highest<=45?45:Math.ceil(highest/10)*10,step=max===45?5:10;
+  return {max,ticks:Array.from({length:max/step+1},(_,index)=>index*step)};
+}
 function monday(date:string):string{
   const day=new Date(date+"T00:00:00Z");day.setUTCDate(day.getUTCDate()-((day.getUTCDay()+6)%7));return day.toISOString().slice(0,10);
 }

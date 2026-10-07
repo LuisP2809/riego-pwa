@@ -4,7 +4,7 @@ Aplicación Android y PWA para capturar y consultar **Humedades, Compactación y
 
 ## Descargar e instalar
 
-Abre **Releases** de este repositorio y descarga el archivo `Riego-0.1.10.apk`. Android puede pedir que permitas la instalación desde el navegador o el gestor de archivos. El identificador de la app es `pe.riego.campo`, independiente de Fenología y Fitosanidad.
+Abre **Releases** de este repositorio y descarga el archivo `Riego-0.1.11.apk`. Android puede pedir que permitas la instalación desde el navegador o el gestor de archivos. El identificador de la app es `pe.riego.campo`, independiente de Fenología y Fitosanidad.
 
 El workflow **APK descargable de Riego** compila cada cambio de `main`, verifica la firma de actualización, el ID, la versión Android y el ajuste del teclado, guarda el APK en Actions y lo publica en Releases. Para publicar otra versión, aumenta `version` en `package.json`. No sobrescribe versiones ya publicadas con un cambio de código distinto.
 
@@ -93,7 +93,7 @@ En **Gráficas**, elige el apartado y filtra por sede, fundo, módulo, lote y pe
 
 ### Humedades
 
-- **Evolución semanal por profundidad**: promedio semanal para cada profundidad de la sede, con una línea por profundidad. Las semanas usan su año ISO; una semana sin lecturas deja un hueco en la línea.
+- **Evolución semanal por profundidad**: promedio semanal para cada profundidad de la sede, con una línea por profundidad. El eje vertical usa 0–45% con marcas cada 5 puntos para distinguir mejor las profundidades. Si un promedio semanal supera 45%, la escala se amplía al siguiente múltiplo de 10 para mantenerlo visible. Las semanas usan su año ISO; una semana sin lecturas deja un hueco en la línea. Si solo hay una semana, se muestran los puntos de cada profundidad.
 - **Promedio por fundo**: promedio de las lecturas de humedad registradas en el periodo y la ubicación seleccionados.
 - **Matriz módulo–profundidad**: humedad promedio (%) para cada módulo y profundidad. El cero se muestra como cero; una profundidad sin lecturas aparece con un guion y fondo gris.
 
