@@ -40,7 +40,7 @@ function session_(props,p){
  const key='DEVICE_'+hash_(p.token),raw=props.getProperty(key);
  if(!raw)negar_('Este dispositivo ya no tiene acceso. Solicita un nuevo código.');
  const device=JSON.parse(raw);if(device.expiresAt<Date.now())negar_('El acceso del dispositivo venció.');
- return {key:key,owner:device.owner===true};
+ return {key:key,owner:device.owner===true,name:String(device.name||'')};
 }
 function activar_(props,p){
  const code=String(p.code||'').replace(/\s+/g,'').toUpperCase(),now=Date.now(),hash=hash_(code);
@@ -51,9 +51,13 @@ function activar_(props,p){
   inviteKey='INVITE_'+hash;const raw=props.getProperty(inviteKey),invite=raw?JSON.parse(raw):null;
   if(!invite||invite.expiresAt<=now)negar_('Código inválido, vencido o utilizado.');
  }
- const token=token_();props.setProperty('DEVICE_'+hash_(token),JSON.stringify({owner:owner,createdAt:now,expiresAt:now+366*86400000}));
+ if(p.principal===true&&!owner)negar_('Para crear el acceso principal necesitas la clave inicial de configuración.');
+ if(p.principal===false&&owner)negar_('Usa Crear mi acceso principal para configurar tu dispositivo.');
+ const name=String(p.name||'').trim().replace(/\s+/g,' ');
+ if(name.length>80||(p.principal===true&&name.length<2))throw new Error('Escribe tu nombre y apellidos.');
+ const token=token_();props.setProperty('DEVICE_'+hash_(token),JSON.stringify({owner:owner,name:name,createdAt:now,expiresAt:now+366*86400000}));
  if(owner){props.deleteProperty('RIEGO_INITIAL_HASH');props.deleteProperty('RIEGO_INITIAL_EXPIRY');}else props.deleteProperty(inviteKey);
- return {ok:true,token:token,owner:owner,units:units_(props)};
+ return {ok:true,token:token,owner:owner,name:name,units:units_(props)};
 }
 function invitacion_(props){
  const all=props.getProperties(),now=Date.now();let active=0;
@@ -97,7 +101,7 @@ function doPost(e){
    lock=LockService.getScriptLock();lock.waitLock(30000);return respuesta_(activar_(props,p));
   }
   const session=session_(props,p);
-  if(p.action==='status')return respuesta_({ok:true,owner:session.owner});
+  if(p.action==='status')return respuesta_({ok:true,owner:session.owner,name:session.name});
   if(['invite','config'].indexOf(p.action)>=0&&!session.owner)negar_('Este dispositivo no puede entregar accesos ni cambiar la conexión.');
   if(['sync','invite','config','logout'].indexOf(p.action)<0)throw new Error('Operación desconocida');
   lock=LockService.getScriptLock();lock.waitLock(30000);

@@ -4,11 +4,17 @@ Aplicación Android y PWA para capturar y consultar **Humedades, Compactación y
 
 ## Descargar e instalar
 
-Abre **Releases** de este repositorio y descarga el archivo `Riego-0.1.1.apk`. Android puede pedir que permitas la instalación desde el navegador o el gestor de archivos. El identificador de la app es `pe.riego.campo`, independiente de Fenología y Fitosanidad.
+Abre **Releases** de este repositorio y descarga el archivo `Riego-0.1.2.apk`. Android puede pedir que permitas la instalación desde el navegador o el gestor de archivos. El identificador de la app es `pe.riego.campo`, independiente de Fenología y Fitosanidad.
 
 El workflow **APK descargable de Riego** compila cada cambio de `main`, guarda el APK en Actions y lo publica en Releases. Para publicar otra versión, aumenta `version` en `package.json`. No sobrescribe versiones ya publicadas con un cambio de código distinto.
 
 El APK inicial es una compilación de prueba. El certificado `scripts/android-debug.keystore` es público y exclusivo de desarrollo, con alias `androiddebugkey` y contraseña `android`; mantiene la firma entre compilaciones de prueba para permitir actualizaciones. No se utiliza para distribuir en Google Play. Para una distribución de producción, configura una firma privada fuera del repositorio mediante `signing.env.example`.
+
+## Primero, tu acceso principal
+
+La pantalla inicial destaca **Crear mi acceso principal**. Primero escribes tu nombre y apellidos; luego vinculas el archivo para confirmar que ese dispositivo es tuyo. Después de entrar, **Mis accesos** permite generar los códigos y QR del equipo. Los demás eligen **Tengo un código o QR** en una pantalla separada. Sus códigos no crean otro acceso principal.
+
+Si ya activaste tu dispositivo con 0.1.1, la actualización conserva su acceso y los registros. No necesitas repetir la configuración.
 
 ## Conectar tu archivo de Drive
 
@@ -18,9 +24,9 @@ Archivo identificado del propietario: `1JgvxAAqxLuPGjLkBoj6XpHl3f8n_8Q9ouavMOb8B
 2. Pega el contenido completo de **apps-script/Riego.gs**. Este script es independiente del puente usado por la primera PWA privada; no pegues ambos scripts juntos.
 3. Ejecuta **configurarRiego** y autoriza el acceso al archivo. El registro de ejecución muestra un **código inicial de 64 caracteres** para tu dispositivo principal. Se usa una vez y vence en 24 horas. Consérvalo en privado.
 4. En **Implementar → Nueva implementación**, elige **Aplicación web**, ejecutada **como tú**, con acceso **Cualquier usuario**. Copia el enlace que termina en **/exec**. Cada operación de datos se valida con el acceso del dispositivo.
-5. Instala el APK. En **Conexión con Drive**, pega el enlace `/exec`. En **Código de acceso**, pega el código inicial y pulsa **Activar este dispositivo**.
-6. Abre el botón de configuración de tu dispositivo principal, indica las unidades de profundidad, compactación y presión y guarda. No se han supuesto unidades para esas columnas.
-7. Pulsa **Generar nuevo acceso**. En el otro celular instala el mismo APK y usa **Escanear QR de acceso**. El QR incluye la conexión y un código de 12 caracteres para un único dispositivo; también puedes ingresar manualmente el enlace y el código. El código vence en 24 horas.
+5. Instala el APK y pulsa **Crear mi acceso principal**. Escribe tu nombre y apellidos y pulsa **Continuar**. En el segundo paso, pega el enlace `/exec` en **Enlace de conexión**, pega el código inicial en **Clave inicial de configuración** y pulsa **Crear mi acceso y entrar**.
+6. Abre **Mis accesos → Unidades y archivo de Drive**, indica las unidades de profundidad, compactación y presión y guarda. No se han supuesto unidades para esas columnas.
+7. En **Mis accesos**, pulsa **Generar código y QR**. En el otro celular instala el mismo APK, elige **Tengo un código o QR** y usa **Escanear mi QR**. El QR incluye la conexión y un código de 12 caracteres para un único dispositivo; también puedes pegar el **acceso completo** compartido o ingresar manualmente el enlace y el código. El código vence en 24 horas.
 
 Si pierdes el acceso del dispositivo principal, ejecuta **crearAccesoPropietario** en Apps Script para emitir un nuevo código inicial. Esto requiere acceso al proyecto de Google; la app no puede adjudicarse ese acceso por sí sola.
 

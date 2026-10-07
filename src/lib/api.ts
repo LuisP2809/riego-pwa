@@ -4,15 +4,15 @@ import {recordSchema,validateGeo,type Measurement,type GeoCollection} from "./ri
 import {cached,cache,clearAccessState} from "./riego-offline";
 import {endpointUrl} from "./access";
 
-export type Snapshot={records:Measurement[];geojson:GeoCollection;owner:boolean;sourceConnected:boolean;lastSync:string;units:Record<string,string>;scriptUrl?:string};
-type Session={endpoint:string;token:string;owner:boolean};
+export type Snapshot={records:Measurement[];geojson:GeoCollection;owner:boolean;sourceConnected:boolean;lastSync:string;units:Record<string,string>;scriptUrl?:string;profileName?:string};
+type Session={endpoint:string;token:string;owner:boolean;name?:string};
 const MASTER=validateGeo(JSON.parse(geoText));
 export class AccessError extends Error {code="ACCESS_DENIED";}
 export const configuredEndpoint=()=>cached<string>("endpoint");
 export async function configureEndpoint(value:string){await cache("endpoint",endpointUrl(value));}
 async function localSnapshot():Promise<Snapshot>{
   const session=await cached<Session>("session"),old=await cached<Snapshot>("snapshot");
-  return {records:old?.records??[],geojson:old?.geojson??MASTER,owner:session?.owner??false,sourceConnected:Boolean(session),lastSync:old?.lastSync??"",units:old?.units??{},scriptUrl:session?.endpoint??await configuredEndpoint()};
+  return {records:old?.records??[],geojson:old?.geojson??MASTER,owner:session?.owner??false,profileName:session?.name??"",sourceConnected:Boolean(session),lastSync:old?.lastSync??"",units:old?.units??{},scriptUrl:session?.endpoint??await configuredEndpoint()};
 }
 async function request<T>(endpoint:string,payload:Record<string,unknown>):Promise<T>{
   const url=endpointUrl(endpoint);let data:unknown;
@@ -44,15 +44,21 @@ export async function api<T>(action:string,body?:unknown):Promise<T>{
     case "status":{
       const session=await cached<Session>("session");
       if(!session)return {ok:false,owner:false} as T;
-      const result=await remote<{ok:boolean;owner:boolean}>("status");
-      await cache("session",{...session,owner:result.owner});return result as T;
+      const result=await remote<{ok:boolean;owner:boolean;name?:string}>("status");
+      await cache("session",{...session,owner:result.owner,name:result.name??session.name});return result as T;
     }
     case "activate":{
+      const code=String(b.code??"").replace(/\s+/g,"").toUpperCase(),name=String(b.name??"").trim().replace(/\s+/g," ");
+      if(b.principal===true){
+        if(name.length<2||name.length>80)throw new Error("Escribe tu nombre y apellidos.");
+        if(!/^[A-F0-9]{64}$/.test(code))throw new Error("Usa la clave inicial de configuración de tu archivo para crear el acceso principal.");
+      }else if(b.principal===false&&!/^[A-Z0-9]{12}$/.test(code))throw new Error("Ingresa el código de 12 caracteres que recibiste o escanea tu QR.");
       const endpoint=await configuredEndpoint();if(!endpoint)throw new Error("Primero pega el enlace de conexión o escanea el QR que recibiste.");
       const old=await cached<Snapshot>("snapshot");if(old?.records.some(r=>!r.synced)&&old.scriptUrl!==endpoint)throw new Error("Hay mediciones de otra conexión pendientes. Sincronízalas antes de cambiar de archivo.");
-      const r=await request<{ok:boolean;token:string;owner:boolean;units:Record<string,string>}>(endpoint,{action:"activate",code:b.code});
-      await cache("session",{endpoint,token:r.token,owner:r.owner});await cache("activated",true);
-      await cache("snapshot",{records:old?.scriptUrl===endpoint?old.records:[],geojson:old?.scriptUrl===endpoint?old.geojson:MASTER,owner:r.owner,sourceConnected:true,lastSync:old?.scriptUrl===endpoint?old.lastSync:"",units:r.units??{},scriptUrl:endpoint});
+      const r=await request<{ok:boolean;token:string;owner:boolean;name?:string;units:Record<string,string>}>(endpoint,{action:"activate",code,principal:b.principal,name});
+      if(b.principal===true&&!r.owner)throw new AccessError("Este código no permite crear un acceso principal.");
+      await cache("session",{endpoint,token:r.token,owner:r.owner,name:r.name??name});await cache("activated",true);
+      await cache("snapshot",{records:old?.scriptUrl===endpoint?old.records:[],geojson:old?.scriptUrl===endpoint?old.geojson:MASTER,owner:r.owner,profileName:r.name??name,sourceConnected:true,lastSync:old?.scriptUrl===endpoint?old.lastSync:"",units:r.units??{},scriptUrl:endpoint});
       return {ok:true} as T;
     }
     case "records":return await localSnapshot() as T;

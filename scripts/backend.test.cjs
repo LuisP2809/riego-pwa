@@ -62,6 +62,34 @@ test('Código temporal: un dispositivo, sin permiso de entregar códigos, con ca
  const next=b.call('invite',{token:b.owner.token});const hash=b.context.hash_(next.code);b.props['INVITE_'+hash]=JSON.stringify({expiresAt:0});assert.equal(b.call('activate',{code:next.code}).ok,false);
  assert(b.call('logout',{token:device.token}).ok);assert.equal(b.call('status',{token:device.token}).code,'ACCESS_DENIED');
 });
+test('El acceso principal guarda el nombre; un código compartido no lo crea ni se consume al intentarlo',()=>{
+ const b=backend(),initial=b.context.crearAccesoPropietario(),reads=b.reads;
+ assert.equal(b.call('activate',{code:initial,principal:false}).code,'ACCESS_DENIED');
+ assert.equal(b.call('activate',{code:initial,principal:true,name:' '}).ok,false);
+ const principal=b.call('activate',{code:initial,principal:true,name:' Luis   Pineda '});
+ assert(principal.ok,principal.error);assert.equal(principal.owner,true);assert.equal(principal.name,'Luis Pineda');
+ assert.equal(b.call('status',{token:principal.token}).name,'Luis Pineda');
+ assert.equal(b.call('activate',{code:initial,principal:true,name:'Otro nombre'}).ok,false);
+ const invite=b.call('invite',{token:principal.token});assert(invite.ok);
+ assert.equal(b.call('activate',{code:invite.code,principal:true,name:'Otra persona'}).code,'ACCESS_DENIED');
+ const member=b.call('activate',{code:invite.code,principal:false});assert(member.ok,member.error);assert.equal(member.owner,false);
+ assert.equal(b.call('invite',{token:member.token}).code,'ACCESS_DENIED');assert.equal(b.reads,reads);
+});
+test('Cliente rechaza un código compartido como principal y conserva el nombre después de activar',async()=>{
+ const endpoint='https://script.google.com/macros/s/TEST/exec',state=new Map([['endpoint',endpoint]]);
+ const geo=JSON.parse(fs.readFileSync(path.join(ROOT,'data/lotes-mapa.geojson')));let calls=0;
+ const client=tsModule('src/lib/api.ts',name=>{
+  if(name==='@capacitor/core')return {Capacitor:{isNativePlatform:()=>false}};
+  if(name.endsWith('geojson?raw'))return {default:JSON.stringify(geo)};
+  if(name==='./riego-model')return model;
+  if(name==='./access')return access;
+  if(name==='./riego-offline')return {cached:async k=>state.get(k),cache:async(k,v)=>state.set(k,v),clearAccessState:async()=>{state.delete('session');state.delete('activated');}};
+  return require(name);
+ },{AbortSignal,fetch:async(_url,options)=>{calls++;const p=JSON.parse(options.body);assert.equal(p.principal,true);assert.equal(p.name,'Luis Pineda');return {ok:true,json:async()=>({ok:true,token:'a'.repeat(64),owner:true,name:p.name,units:{}})};}});
+ await assert.rejects(()=>client.api('activate',{code:'ABCDEFGH2345',principal:true,name:'Luis Pineda'}));assert.equal(calls,0);assert(!state.has('session'));
+ await client.api('activate',{code:'A'.repeat(64),principal:true,name:' Luis   Pineda '});assert.equal(calls,1);
+ const snapshot=await client.api('records');assert.equal(snapshot.owner,true);assert.equal(snapshot.profileName,'Luis Pineda');assert.equal(snapshot.geojson.features.length,254);
+});
 test('Sincronizar dos veces no duplica y los conflictos no agregan una fila',()=>{
  const b=backend(),invoke=records=>b.call('sync',{token:b.owner.token,records});
  let r=invoke([base]);assert(r.ok,r.error);assert.equal(r.records[0].humedad,28);assert.equal(b.sheets.HUMEDADES.values.length,2);

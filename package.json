@@ -1,6 +1,6 @@
 {
   "name": "riego-pwa",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "type": "module",
   "description": "Riego de campo: Humedades, Compactación, Presiones, gráficas y mapa.",
@@ -47,5 +47,7 @@
     "typescript": "5.9.3",
     "vite": "8.0.13"
   },
-  "engines": {"node": ">=22.13.0"}
+  "engines": {
+    "node": ">=22.13.0"
+  }
 }
