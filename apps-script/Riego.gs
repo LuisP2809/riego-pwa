@@ -79,34 +79,74 @@ function session_(props,p){
  if(typeof p.token!=='string'||!/^[a-f0-9]{64}$/.test(p.token))negar_();
  const key='DEVICE_'+hash_(p.token),raw=props.getProperty(key);
  if(!raw)negar_('Este dispositivo ya no tiene acceso. Solicita un nuevo código.');
- const device=JSON.parse(raw);if(device.expiresAt<Date.now())negar_('El acceso del dispositivo venció.');
- return {key:key,owner:device.owner===true,name:String(device.name||'')};
+ const device=JSON.parse(raw);if(device.revokedAt)negar_('El dispositivo principal retiró este acceso. Solicita un nuevo código.');if(device.closedAt)negar_('Este acceso se cerró. Solicita un nuevo código.');if(device.expiresAt<=Date.now())negar_('El acceso del dispositivo venció.');
+ return {key:key,owner:device.owner===true,name:String(device.name||''),accessId:String(device.id||'')};
 }
+function nombreAcceso_(value,required){const name=String(value||'').trim().replace(/\s+/g,' ');if(name.length>80||(required&&name.length<2))throw new Error('Escribe un nombre de 2 a 80 caracteres para este acceso.');return name;}
 function activar_(props,p){
  const code=String(p.code||'').replace(/\s+/g,'').toUpperCase(),now=Date.now(),hash=hash_(code);
- let owner=false,inviteKey='';
+ let owner=false,inviteKey='',invite=null;
  if(/^[A-F0-9]{64}$/.test(code)&&props.getProperty('RIEGO_INITIAL_HASH')===hash&&Number(props.getProperty('RIEGO_INITIAL_EXPIRY'))>now)owner=true;
  else{
   if(!/^[A-Z0-9]{12}$/.test(code))negar_('Código inválido o vencido.');
-  inviteKey='INVITE_'+hash;const raw=props.getProperty(inviteKey),invite=raw?JSON.parse(raw):null;
-  if(!invite||invite.expiresAt<=now)negar_('Código inválido, vencido o utilizado.');
+  inviteKey='INVITE_'+hash;const raw=props.getProperty(inviteKey);invite=raw?JSON.parse(raw):null;
+  if(!invite||invite.cancelledAt||invite.expiresAt<=now)negar_('Código inválido, vencido o utilizado.');
  }
  if(p.principal===true&&!owner)negar_('Para crear el acceso principal necesitas la clave inicial de configuración.');
  if(p.principal===false&&owner)negar_('Usa Crear mi acceso principal para configurar tu dispositivo.');
- const name=String(p.name||'').trim().replace(/\s+/g,' ');
+ const name=nombreAcceso_(invite&&invite.name?invite.name:p.name,false);
  if(name.length>80||(p.principal===true&&name.length<2))throw new Error('Escribe tu nombre y apellidos.');
- const token=token_();props.setProperty('DEVICE_'+hash_(token),JSON.stringify({owner:owner,name:name,createdAt:now,expiresAt:now+366*86400000}));
+ const token=token_(),id=invite&&invite.id?invite.id:Utilities.getUuid();props.setProperty('DEVICE_'+hash_(token),JSON.stringify({id:id,owner:owner,name:name,createdAt:now,invitedAt:invite?invite.createdAt||0:0,expiresAt:now+366*86400000}));
  if(owner){props.deleteProperty('RIEGO_INITIAL_HASH');props.deleteProperty('RIEGO_INITIAL_EXPIRY');}else props.deleteProperty(inviteKey);
- return {ok:true,token:token,owner:owner,name:name,units:units_(props)};
+ return {ok:true,token:token,owner:owner,name:name,accessId:id,units:units_(props)};
 }
-function invitacion_(props){
+function invitacion_(props,p){
+ const name=nombreAcceso_(p&&p.name,p&&p.accessManagement===true);
  const all=props.getProperties(),now=Date.now();let active=0;
- Object.keys(all).filter(function(k){return k.indexOf('INVITE_')===0;}).forEach(function(k){const v=JSON.parse(all[k]);if(v.expiresAt<=now)props.deleteProperty(k);else active++;});
+ Object.keys(all).filter(function(k){return k.indexOf('INVITE_')===0;}).forEach(function(k){const v=JSON.parse(all[k]);if(!v.cancelledAt&&v.expiresAt>now)active++;});
  if(active>=100)throw new Error('Ya hay 100 códigos sin utilizar. Espera a que venzan.');
  const bytes=Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,token_(),Utilities.Charset.UTF_8),alphabet='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
  let code='';for(let i=0;i<12;i++)code+=alphabet[(bytes[i]&255)%alphabet.length];
- const expiresAt=now+86400000;props.setProperty('INVITE_'+hash_(code),JSON.stringify({expiresAt:expiresAt}));
- return {ok:true,code:code,expiresAt:expiresAt};
+ const expiresAt=now+86400000,id=Utilities.getUuid();props.setProperty('INVITE_'+hash_(code),JSON.stringify({id:id,name:name,createdAt:now,expiresAt:expiresAt}));
+ return {ok:true,id:id,name:name,code:code,expiresAt:expiresAt};
+}
+// Access IDs are public references; token and invitation hashes stay in Script Properties.
+// Existing sessions are assigned IDs under the script lock without replacing their tokens.
+function accesoPublico_(key,value,now){
+ const invitation=key.indexOf('INVITE_')===0;
+ const status=invitation?(value.cancelledAt?'cancelled':value.expiresAt<=now?'expired':'pending'):(value.revokedAt?'revoked':value.closedAt?'closed':value.expiresAt<=now?'expired':'active');
+ return {id:value.id,kind:invitation?'invitation':'device',name:String(value.name||''),status:status,createdAt:invitation?value.createdAt||0:value.invitedAt||value.createdAt||0,activatedAt:invitation?0:value.createdAt||0,expiresAt:value.expiresAt||0};
+}
+function accesos_(props){
+ const all=props.getProperties(),rows=[],now=Date.now();
+ Object.keys(all).filter(function(key){return /^(DEVICE|INVITE)_[a-f0-9]{64}$/.test(key);}).forEach(function(key){
+  const value=JSON.parse(all[key]);if(value.owner===true)return;
+  if(!value.id){value.id=Utilities.getUuid();props.setProperty(key,JSON.stringify(value));}
+  rows.push(accesoPublico_(key,value,now));
+ });
+ rows.sort(function(a,b){return (b.activatedAt||b.createdAt)-(a.activatedAt||a.createdAt)||a.id.localeCompare(b.id);});
+ return {ok:true,accesses:rows,capabilities:{accessManagement:true}};
+}
+function buscarAcceso_(props,id){
+ if(typeof id!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(id))throw new Error('Referencia de acceso inválida.');
+ const all=props.getProperties(),keys=Object.keys(all).filter(function(key){return /^(DEVICE|INVITE)_[a-f0-9]{64}$/.test(key);});
+ for(let i=0;i<keys.length;i++){const value=JSON.parse(all[keys[i]]);if(value.id===id)return {key:keys[i],value:value};}
+ throw new Error('Este acceso ya no está disponible. Actualiza la lista.');
+}
+function gestionarAcceso_(props,p,session){
+ const entry=buscarAcceso_(props,p.id),value=entry.value,invitation=entry.key.indexOf('INVITE_')===0;
+ if(value.owner===true||entry.key===session.key)throw new Error('El acceso principal se conserva; no se puede retirar desde esta lista.');
+ if(p.action==='access_rename')value.name=nombreAcceso_(p.name,true);
+ else if(p.action==='access_cancel'){if(!invitation)throw new Error('El QR ya fue activado. Actualiza la lista para retirar el acceso del dispositivo.');value.cancelledAt=value.cancelledAt||Date.now();}
+ else if(p.action==='access_revoke'){if(invitation)throw new Error('Este QR está pendiente. Usa Cancelar QR.');value.revokedAt=value.revokedAt||Date.now();}
+ else throw new Error('Operación de acceso desconocida.');
+ props.setProperty(entry.key,JSON.stringify(value));
+ return {ok:true,access:accesoPublico_(entry.key,value,Date.now())};
+}
+function verificarGestionAccesos(){
+ const all=PropertiesService.getScriptProperties().getProperties();let devices=0;
+ Object.keys(all).filter(function(key){return /^DEVICE_[a-f0-9]{64}$/.test(key);}).forEach(function(key){if(JSON.parse(all[key]).owner!==true)devices++;});
+ console.log('Gestión de accesos preparada: nombres, lista, cancelar QR y retirar acceso. '+devices+' dispositivos compartidos existentes se conservan. No se crearon códigos ni se retiraron accesos.');
 }
 function configuracion_(props,p){
  const units=p.units||{},out={};['prof','compactacion','presion'].forEach(function(k){const value=String(units[k]||'').trim();if(value.length>30)throw new Error('Unidad demasiado larga');out[k]=value;});
@@ -143,16 +183,18 @@ function doPost(e){
    lock=LockService.getScriptLock();lock.waitLock(30000);return respuesta_(activar_(props,p));
   }
   const session=session_(props,p);
-  if(p.action==='status')return respuesta_({ok:true,owner:session.owner,name:session.name,capabilities:{waterQuality:true}});
-  if(['invite','config'].indexOf(p.action)>=0&&!session.owner)negar_('Este dispositivo no puede entregar accesos ni cambiar la conexión.');
-  if(['sync','invite','config','logout'].indexOf(p.action)<0)throw new Error('Operación desconocida');
+  if(p.action==='status')return respuesta_({ok:true,owner:session.owner,name:session.name,accessId:session.accessId,capabilities:{waterQuality:true,accessManagement:true}});
+  if(['invite','config','accesses','access_rename','access_cancel','access_revoke'].indexOf(p.action)>=0&&!session.owner)negar_('Este dispositivo no puede entregar accesos ni cambiar la conexión.');
+  if(['sync','invite','config','logout','accesses','access_rename','access_cancel','access_revoke'].indexOf(p.action)<0)throw new Error('Operación desconocida');
   lock=LockService.getScriptLock();lock.waitLock(30000);
   // Recheck after acquiring the lock, including expiration or revocation during the wait.
   session_(props,p);
   if(p.action==='sync')return respuesta_(sync_(props,p));
-  if(p.action==='invite')return respuesta_(invitacion_(props));
+  if(p.action==='invite')return respuesta_(invitacion_(props,p));
+  if(p.action==='accesses')return respuesta_(accesos_(props));
+  if(['access_rename','access_cancel','access_revoke'].indexOf(p.action)>=0)return respuesta_(gestionarAcceso_(props,p,session));
   if(p.action==='config')return respuesta_(configuracion_(props,p));
-  props.deleteProperty(session.key);return respuesta_({ok:true});
+  const device=JSON.parse(props.getProperty(session.key));device.closedAt=Date.now();props.setProperty(session.key,JSON.stringify(device));return respuesta_({ok:true});
  }catch(error){return respuesta_({ok:false,error:String(error.message||error),code:error.accessDenied?'ACCESS_DENIED':'REQUEST_ERROR'});}
  finally{if(lock&&lock.hasLock())lock.releaseLock();}
 }

@@ -1,7 +1,7 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),crypto=require('node:crypto'),path=require('node:path'),ts=require('typescript');
 const ROOT=path.resolve(__dirname,'..');
 function tsModule(file,requireFn=require,extras={}){const exports={};const context={exports,module:{exports},require:requireFn,Date,Intl,URL,URLSearchParams,Math,Number,String,Set,Map,JSON,console,Error,...extras};vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(ROOT,file),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText,context);return exports;}
-const model=tsModule('src/lib/riego-model.ts'),access=tsModule('src/lib/access.ts');
+const model=tsModule('src/lib/riego-model.ts'),access=tsModule('src/lib/access.ts'),managedAccess=tsModule('src/lib/managed-access.ts');
 const humedades=tsModule('src/lib/humedades.ts',name=>name==='./riego-model'?model:require(name),{crypto});
 const compactacion=tsModule('src/lib/compactacion.ts',name=>name==='./riego-model'?model:require(name),{crypto});
 const water=tsModule('src/lib/calidad-agua.ts',name=>name==='./riego-model'?model:require(name),{crypto});
@@ -13,6 +13,7 @@ const connection=tsModule('src/lib/connection.ts',name=>name==='../../package.js
 const webReply=data=>({ok:true,status:200,headers:{get:()=> 'application/json'},text:async()=>JSON.stringify(data)});
 const greeting='Riego: activa un dispositivo mediante un código o QR. Las mediciones requieren autorización.';
 const greetingReply=()=>({ok:true,status:200,headers:{get:()=> 'text/plain'},text:async()=>greeting});
+const tokenKey=token=>'DEVICE_'+crypto.createHash('sha256').update(token).digest('hex');
 const base={id:'11111111-1111-4111-8111-111111111111',kind:'HUMEDADES',date:'2026-10-06',lugar:'OLMOS',fundo:'CHALLAPAMPA',modulo:'M13',lote:'M13T04-87',prof:20,humedad:28};
 function backend(){
  const props={},notes={},formats={},sheets={};let reads=0,held=false;
@@ -401,7 +402,7 @@ test('Cliente rechaza un código compartido como principal y conserva el nombre 
   if(name==='./riego-model')return model;
   if(name==='./access')return access;
   if(name==='./drive-transport')return transport;
-  if(name==='./connection')return connection;
+  if(name==='./managed-access')return managedAccess;if(name==='./connection')return connection;
   if(name==='./riego-offline')return {cached:async k=>state.get(k),cache:async(k,v)=>state.set(k,v),clearAccessState:async()=>{state.delete('session');state.delete('activated');}};
   return require(name);
  },{AbortSignal,fetch:async(url,options)=>{calls++;assert.equal(url,connection.RIEGO_ENDPOINT);if(options.method==='GET')return greetingReply();const p=JSON.parse(options.body);assert.equal(p.principal,true);assert.equal(p.name,'Luis Pineda');return webReply({ok:true,token:'a'.repeat(64),owner:true,name:p.name,units:{}});}});
@@ -440,7 +441,7 @@ test('Cliente conserva los registros de un lote confirmado cuando falla el lote 
   if(name==='./riego-model')return model;
   if(name==='./access')return access;
   if(name==='./drive-transport')return transport;
-  if(name==='./connection')return connection;
+  if(name==='./managed-access')return managedAccess;if(name==='./connection')return connection;
   if(name==='./riego-offline')return {cached:async k=>state.get(k),cache:async(k,v)=>state.set(k,v),clearAccessState:async()=>{state.delete('session');state.delete('activated');}};
   return require(name);
  },{AbortSignal,fetch:async(_url,options)=>{calls++;if(calls===2)throw new Error('Sin conexión');const p=JSON.parse(options.body);return webReply({ok:true,acknowledged:p.records.map(r=>r.id),records:p.records,units:{}});}});
@@ -513,7 +514,7 @@ test('La activación nativa conserva nombre y sesión después de leer la redire
   }}};
   if(name.endsWith('geojson?raw'))return {default:JSON.stringify(geo)};
   if(name==='./riego-model')return model;if(name==='./access')return access;if(name==='./drive-transport')return transport;
-  if(name==='./connection')return connection;
+  if(name==='./managed-access')return managedAccess;if(name==='./connection')return connection;
   if(name==='./riego-offline')return {cached:async k=>state.get(k),cache:async(k,v)=>state.set(k,v),clearAccessState:async()=>{state.delete('session');state.delete('activated');}};
   return require(name);
  });
@@ -538,7 +539,7 @@ function activationClient(nativeRequest,state=new Map()){
  return tsModule('src/lib/api.ts',name=>{
   if(name==='@capacitor/core')return {Capacitor:{isNativePlatform:()=>true},CapacitorHttp:{request:nativeRequest}};
   if(name.endsWith('geojson?raw'))return {default:JSON.stringify(geo)};
-  if(name==='./riego-model')return model;if(name==='./access')return access;if(name==='./drive-transport')return transport;if(name==='./connection')return connection;
+  if(name==='./riego-model')return model;if(name==='./access')return access;if(name==='./drive-transport')return transport;if(name==='./managed-access')return managedAccess;if(name==='./connection')return connection;
   if(name==='./riego-offline')return {cached:async k=>state.get(k),cache:async(k,v)=>state.set(k,v),clearAccessState:async()=>{state.delete('session');state.delete('activated');}};
   return require(name);
  });
@@ -680,4 +681,109 @@ test('Con la conexión anterior el agua queda pendiente, las otras mediciones si
  assert.equal(b.sheets.HUMEDADES.values.length,2);assert.equal(b.sheets.CALIDAD_AGUA.values.length,1);
  updated=true;const result=await client.api('sync');assert.equal(result.written,1);assert.equal(result.records.length,2);assert(result.records.every(row=>row.synced));
  assert.equal(b.sheets.HUMEDADES.values.length,2);assert.equal(b.sheets.CALIDAD_AGUA.values.length,2);assert.equal(calls.filter(p=>p.action==='status').length,2);
+});
+
+test('Un QR con nombre conserva la referencia al activarse y usa el nombre indicado por el principal',()=>{
+ const b=backend(),reads=b.reads;
+ const invite=b.call('invite',{token:b.owner.token,name:'  José   Pérez ',accessManagement:true});assert(invite.ok,invite.error);assert.equal(invite.name,'José Pérez');
+ const pending=b.call('accesses',{token:b.owner.token}).accesses;assert.equal(pending.length,1);assert.equal(pending[0].id,invite.id);assert.equal(pending[0].status,'pending');
+ const member=b.call('activate',{code:invite.code,principal:false,name:'Otro nombre'});assert(member.ok,member.error);assert.equal(member.name,'José Pérez');assert.equal(member.accessId,invite.id);
+ const active=b.call('accesses',{token:b.owner.token}).accesses;assert.equal(active.length,1);assert.equal(active[0].status,'active');assert.equal(active[0].id,invite.id);assert(active[0].activatedAt>0);
+ const status=b.call('status',{token:member.token});assert.equal(status.accessId,invite.id);assert.equal(status.capabilities.accessManagement,true);
+ assert.equal(b.call('activate',{code:invite.code}).code,'ACCESS_DENIED');assert.equal(b.reads,reads);
+ const publicText=JSON.stringify(active);for(const secret of [member.token,b.owner.token,invite.code,tokenKey(member.token)])assert(!publicText.includes(secret));
+ assert.deepEqual(Object.keys(active[0]).sort(),['activatedAt','createdAt','expiresAt','id','kind','name','status']);
+});
+test('Cancelar un QR impide activarlo, conserva el historial y permite reintentar la cancelación',()=>{
+ const b=backend(),invite=b.call('invite',{token:b.owner.token,name:'Ana Torres',accessManagement:true});
+ for(let i=0;i<2;i++){const result=b.call('access_cancel',{token:b.owner.token,id:invite.id});assert(result.ok,result.error);assert.equal(result.access.status,'cancelled');}
+ assert.equal(b.call('activate',{code:invite.code,principal:false}).code,'ACCESS_DENIED');
+ assert.equal(b.call('accesses',{token:b.owner.token}).accesses[0].status,'cancelled');assert(b.call('status',{token:b.owner.token}).ok);
+});
+test('Retirar un dispositivo bloquea todas sus operaciones antes de acceder a las hojas y no borra datos',()=>{
+ const b=backend(),invite=b.call('invite',{token:b.owner.token,name:'María Campos',accessManagement:true}),member=b.call('activate',{code:invite.code});
+ assert(b.call('sync',{token:member.token,records:[base]}).ok);const rows=JSON.stringify(b.sheets.HUMEDADES.values),reads=b.reads;
+ for(let i=0;i<2;i++){const result=b.call('access_revoke',{token:b.owner.token,id:member.accessId});assert(result.ok,result.error);assert.equal(result.access.status,'revoked');}
+ for(const action of ['status','sync','invite','config','accesses','access_rename','access_cancel','access_revoke','logout'])assert.equal(b.call(action,{token:member.token,id:member.accessId,records:[],owner:true}).code,'ACCESS_DENIED',action);
+ assert.equal(b.reads,reads);assert.equal(JSON.stringify(b.sheets.HUMEDADES.values),rows);assert(b.call('status',{token:b.owner.token}).ok);
+ assert.equal(b.call('activate',{code:invite.code}).code,'ACCESS_DENIED');
+ const next=b.call('invite',{token:b.owner.token,name:'María Campos',accessManagement:true});assert.notEqual(next.id,member.accessId);assert(b.call('activate',{code:next.code}).ok);
+});
+test('Solo el principal administra accesos; ni su sesión ni otra sesión principal se pueden retirar',()=>{
+ const b=backend(),invite=b.call('invite',{token:b.owner.token}),member=b.call('activate',{code:invite.code});
+ const nextInitial=b.context.crearAccesoPropietario(),otherOwner=b.call('activate',{code:nextInitial});assert(otherOwner.owner);
+ for(const action of ['accesses','access_rename','access_cancel','access_revoke']){
+  assert.equal(b.call(action,{id:member.accessId,name:'Intruso'}).code,'ACCESS_DENIED');
+  const before=JSON.stringify(b.props);assert.equal(b.call(action,{token:member.token,owner:true,id:member.accessId,name:'Intruso'}).code,'ACCESS_DENIED');assert.equal(JSON.stringify(b.props),before);
+ }
+ for(const id of [b.owner.accessId,otherOwner.accessId])for(const action of ['access_rename','access_cancel','access_revoke']){
+  const before=JSON.stringify(b.props),result=b.call(action,{token:b.owner.token,id,name:'Cambio'});assert.equal(result.ok,false);assert.match(result.error,/principal/);assert.equal(JSON.stringify(b.props),before);
+ }
+ assert.equal(b.call('accesses',{token:b.owner.token}).accesses.length,1);
+});
+test('Los accesos anteriores reciben referencias estables sin cambiar tokens, fechas, nombres o registros',()=>{
+ const b=backend(),invite=b.call('invite',{token:b.owner.token}),member=b.call('activate',{code:invite.code}),pending=b.call('invite',{token:b.owner.token});
+ for(const key of Object.keys(b.props).filter(key=>/^(DEVICE|INVITE)_/.test(key))){const value=JSON.parse(b.props[key]);delete value.id;if(!value.owner)delete value.name;b.props[key]=JSON.stringify(value);}
+ const before=JSON.parse(JSON.stringify(b.props)),reads=b.reads;const list=b.call('accesses',{token:b.owner.token});assert(list.ok,list.error);assert.equal(list.accesses.length,2);assert(list.accesses.every(row=>row.name===''));
+ for(const [key,raw] of Object.entries(before)){if(/^(DEVICE|INVITE)_/.test(key)&&!JSON.parse(raw).owner){const value=JSON.parse(b.props[key]);assert(managedAccess.managedAccessSchema.shape.id.safeParse(value.id).success);delete value.id;assert.deepEqual(value,JSON.parse(raw));}else assert.equal(b.props[key],raw);}
+ assert.deepEqual(b.call('accesses',{token:b.owner.token}).accesses,list.accesses);assert(b.call('status',{token:member.token}).ok);assert.equal(b.reads,reads);
+ const device=list.accesses.find(row=>row.kind==='device'),renamed=b.call('access_rename',{token:b.owner.token,id:device.id,name:'  Pedro   García '});assert(renamed.ok,renamed.error);assert.equal(renamed.access.name,'Pedro García');
+ const status=b.call('status',{token:member.token});assert.equal(status.name,'Pedro García');assert.equal(status.accessId,device.id);assert(b.call('activate',{code:pending.code}).ok);
+});
+test('Una lista desactualizada no cancela un dispositivo ya activado ni retira un QR pendiente',()=>{
+ const b=backend(),invite=b.call('invite',{token:b.owner.token,name:'Juan Pérez',accessManagement:true});
+ assert.equal(b.call('access_revoke',{token:b.owner.token,id:invite.id}).ok,false);const member=b.call('activate',{code:invite.code});
+ const result=b.call('access_cancel',{token:b.owner.token,id:invite.id});assert.equal(result.ok,false);assert.match(result.error,/ya fue activado/);assert(b.call('status',{token:member.token}).ok);
+ const before=JSON.stringify(b.props);for(const id of ['','INVALID',crypto.randomUUID()])assert.equal(b.call('access_revoke',{token:b.owner.token,id}).ok,false);assert.equal(JSON.stringify(b.props),before);
+});
+test('Caducidad y cierre aparecen en el historial; el verificador de gestión no cambia ninguna propiedad',()=>{
+ const b=backend(),invite=b.call('invite',{token:b.owner.token}),member=b.call('activate',{code:invite.code}),expired=b.call('invite',{token:b.owner.token});
+ const expiredKey='INVITE_'+b.context.hash_(expired.code),value=JSON.parse(b.props[expiredKey]);value.expiresAt=Date.now()-1;b.props[expiredKey]=JSON.stringify(value);
+ assert(b.call('logout',{token:member.token}).ok);assert.equal(b.call('status',{token:member.token}).code,'ACCESS_DENIED');
+ const states=b.call('accesses',{token:b.owner.token}).accesses;assert.equal(states.find(row=>row.id===member.accessId).status,'closed');assert.equal(states.find(row=>row.id===expired.id).status,'expired');
+ const before=JSON.stringify(b.props),reads=b.reads;b.context.verificarGestionAccesos();assert.equal(JSON.stringify(b.props),before);assert.equal(b.reads,reads);
+});
+test('El servidor vuelve a comprobar el retiro al adquirir el bloqueo para sincronizar',()=>{
+ const b=backend(),invite=b.call('invite',{token:b.owner.token}),member=b.call('activate',{code:invite.code}),reads=b.reads;
+ let held=false;b.context.LockService.getScriptLock=()=>({waitLock(){held=true;const key=tokenKey(member.token),value=JSON.parse(b.props[key]);value.revokedAt=Date.now();b.props[key]=JSON.stringify(value);},hasLock:()=>held,releaseLock(){held=false;}});
+ assert.equal(b.call('sync',{token:member.token,records:[base]}).code,'ACCESS_DENIED');assert.equal(b.reads,reads);assert.equal(b.sheets.HUMEDADES.values.length,1);assert.equal(held,false);
+});
+test('Nombres y filtros validan límites, buscan sin acentos y escapan texto en la lista de accesos',()=>{
+ assert.equal(managedAccess.normalizeAccessName('  José   Pérez '),'José Pérez');for(const name of ['', 'A', 'x'.repeat(81)])assert.throws(()=>managedAccess.normalizeAccessName(name));
+ const b=backend(),before=JSON.stringify(b.props);for(const name of ['', 'A','x'.repeat(81)])assert.equal(b.call('invite',{token:b.owner.token,name,accessManagement:true}).ok,false);assert.equal(JSON.stringify(b.props),before);
+ const invite=b.call('invite',{token:b.owner.token,name:'José Pérez',accessManagement:true}),rows=b.call('accesses',{token:b.owner.token}).accesses;
+ assert.equal(managedAccess.filterAccesses(rows,'pending','jose').length,1);assert.equal(managedAccess.filterAccesses(rows,'active','').length,0);assert.equal(managedAccess.filterAccesses(rows,'all',managedAccess.accessReference(invite.id)).length,1);
+ const React=require('react'),{renderToStaticMarkup}=require('react-dom/server');
+ const List=tsModule('src/components/access-manager.tsx',name=>name==='@/lib/managed-access'?managedAccess:name==='@/lib/api'?{}:name==='@/lib/access'?access:name==='@/lib/native'?{}:require(name)).AccessList;
+ const render=row=>renderToStaticMarkup(React.createElement(List,{rows:[row],disabled:false,onRename(){},onAction(){}}));
+ for(const [status,label,action] of [['pending','Pendiente','Cancelar QR'],['active','Activo','Retirar acceso'],['cancelled','Cancelado',null],['revoked','Retirado',null],['expired','Vencido',null],['closed','Cerrado',null]]){
+  const html=render({...rows[0],kind:status==='pending'?'invitation':'device',status,name:'<img src=x onerror=alert(1)>'});assert(html.includes(label));assert(html.includes('Referencia'));assert(html.includes('Editar nombre'));assert(!html.includes('<img src=x'));assert(html.includes('&lt;img'));if(action)assert(html.includes(action));else{assert(!html.includes('Cancelar QR'));assert(!html.includes('Retirar acceso'));}
+ }
+ assert(render({...rows[0],name:''}).includes('Poner nombre'));assert(render({...rows[0],name:''}).includes('Sin nombre'));
+});
+test('Cliente Android y servidor administran un acceso con nombre, su activación, renombre y retiro',async()=>{
+ const b=backend(),endpoint=connection.RIEGO_ENDPOINT,ownerState=new Map([['session',{endpoint,token:b.owner.token,owner:true}]]),memberState=new Map([['endpoint',endpoint]]);
+ const http=async options=>({status:200,headers:{'Content-Type':options.method==='GET'?'text/plain':'application/json'},url:options.url,data:options.method==='GET'?greeting:b.call(JSON.parse(options.data).action,JSON.parse(options.data))});
+ const owner=activationClient(http,ownerState),member=activationClient(http,memberState),invite=await owner.api('invite',{name:'Ana Torres'});
+ assert.equal((await owner.api('accesses')).accesses[0].id,invite.id);await member.api('activate',{principal:false,code:invite.code});assert.equal((await member.api('records')).profileName,'Ana Torres');assert.equal((await member.api('records')).accessId,invite.id);
+ await owner.api('access_rename',{id:invite.id,name:'Ana Torres · campo'});await member.api('status');assert.equal((await member.api('records')).profileName,'Ana Torres · campo');
+ await member.api('save',{records:[base]});const pending=JSON.stringify(memberState.get('snapshot').records);memberState.set('queue',[base]);
+ await owner.api('access_revoke',{id:invite.id});await assert.rejects(()=>member.api('status'),error=>error.code==='ACCESS_DENIED');assert(!memberState.has('session'));assert(!memberState.has('activated'));assert.equal(JSON.stringify(memberState.get('snapshot').records),pending);assert.deepEqual(memberState.get('queue'),[base]);
+});
+test('Un cliente no envía invitaciones con nombre a conexiones antiguas ni envía nombres inválidos',async()=>{
+ const calls=[],state=new Map([['session',{endpoint:connection.RIEGO_ENDPOINT,token:'a'.repeat(64),owner:true}]]);
+ const client=activationClient(async options=>{const p=JSON.parse(options.data);calls.push(p);return {status:200,headers:{'Content-Type':'application/json'},url:options.url,data:{ok:true,owner:true}};},state);
+ await assert.rejects(()=>client.api('invite',{name:'Ana Torres'}),/necesita actualizarse/);assert.deepEqual(calls.map(p=>p.action),['status']);
+ const count=calls.length;for(const name of ['','A','x'.repeat(81)])await assert.rejects(()=>client.api('invite',{name}));assert.equal(calls.length,count);assert(state.has('session'));
+});
+test('Un status tardío no restaura una sesión retirada por otra solicitud',async()=>{
+ const state=new Map([['session',{endpoint:connection.RIEGO_ENDPOINT,token:'a'.repeat(64),owner:true}],['activated',true]]);let resolveStatus,started;
+ const ready=new Promise(resolve=>started=resolve);
+ const client=activationClient(async options=>{const p=JSON.parse(options.data);if(p.action==='status'){started();return new Promise(resolve=>resolveStatus=()=>resolve({status:200,headers:{'Content-Type':'application/json'},url:options.url,data:{ok:true,owner:true,name:'Anterior'}}));}return {status:200,headers:{'Content-Type':'application/json'},url:options.url,data:{ok:false,code:'ACCESS_DENIED',error:'Retirado'}};},state);
+ const checking=client.api('status');await ready;await assert.rejects(()=>client.api('accesses'));resolveStatus();assert.equal((await checking).ok,false);assert(!state.has('session'));assert(!state.has('activated'));
+});
+test('Una denegación tardía de una sesión anterior no borra una activación nueva',async()=>{
+ const state=new Map([['session',{endpoint:connection.RIEGO_ENDPOINT,token:'a'.repeat(64),owner:true}]]);let finish,started;const ready=new Promise(resolve=>started=resolve);
+ const client=activationClient(async options=>{started();return new Promise(resolve=>finish=()=>resolve({status:200,headers:{'Content-Type':'application/json'},url:options.url,data:{ok:false,code:'ACCESS_DENIED'}}));},state);
+ const checking=client.api('status');await ready;state.set('session',{endpoint:connection.RIEGO_ENDPOINT,token:'b'.repeat(64),owner:false});state.set('activated',true);finish();await assert.rejects(()=>checking);assert.equal(state.get('session').token,'b'.repeat(64));assert.equal(state.get('activated'),true);
 });

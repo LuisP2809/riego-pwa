@@ -1,16 +1,19 @@
-# Riego 0.1.12
+# Riego 0.1.13
 
-Nuevo apartado **Calidad de agua**. Selecciona Fecha, Sede y Filtrado para ingresar **pH, CE, Na y Ca** al costado de cada parámetro.
+**Mis accesos** permite administrar los celulares de tu equipo desde el dispositivo principal:
 
-| Sede | Filtrados |
-| --- | --- |
-| OLMOS | FILTRADO PESQUERA, FILTRADO CHOLOCAL |
-| MOTUPE | FRANCO, CHOLOQUE, PALACIOS, CHOC CHOC, ANDINA |
+- Escribe el nombre de la persona al generar un código y QR.
+- Revisa accesos pendientes, activos, cancelados, retirados, vencidos o cerrados. Busca por nombre o referencia.
+- Usa **Poner nombre** o **Editar nombre** para identificar los accesos anteriores sin cambiar su activación.
+- **Cancelar QR** impide activar un código pendiente. **Retirar acceso** bloquea la conexión del celular activado.
+- El acceso principal queda protegido. Para devolver un acceso retirado, genera un nuevo código.
 
-Cada evaluación se guarda en el dispositivo como un registro de cuatro lecturas. Al sincronizar se envía una fila a **CALIDAD AGUA**, conservando sus columnas originales: AÑO, MES, SEMANA, FECHA, LUGAR, FILTRADO, PH, C.E, Na y Ca. El historial muestra fecha, sede, filtrado, valores y estado de sincronización. Cambiar sede limpia el filtrado; cambiar fecha, sede o filtrado vacía las lecturas.
+Cada código activa un celular y vence en 24 horas. La lista muestra códigos creados y dispositivos activados; no detecta a quién se reenvió una imagen del QR ni verifica la identidad real de quien la use.
 
-**La conexión de Drive necesita la actualización de Apps Script incluida en esta versión.** Reemplaza el código del proyecto existente por **apps-script/Riego.gs** y publica una nueva versión de la misma implementación, conservando el enlace actual. No ejecutes configurarRiego ni generes otra clave inicial. Mientras siga publicada la conexión anterior, la APK conserva el agua pendiente en el celular y permite sincronizar los otros apartados. Las APK anteriores siguen recibiendo solo sus tres apartados.
+El servidor rechaza las solicitudes de un acceso retirado. La APK comprueba su vigencia al reconectarse, al volver a abrirse y cada minuto mientras esté abierta con internet. Sin conexión, el celular conserva su funcionamiento local hasta comprobar el retiro. Los datos descargados y pendientes no se borran.
 
-Instala **Riego-0.1.12.apk** sobre la versión actual para conservar el acceso y los registros.
+**La conexión de Drive requiere el código de Apps Script de esta versión.** Actualiza el proyecto existente con **apps-script/Riego.gs** y publica una nueva versión de la misma implementación, conservando su enlace y configuración. No ejecutes **configurarRiego** ni generes otra clave inicial. **verificarGestionAccesos** solo comprueba los dispositivos existentes, sin crear códigos ni retirar accesos.
 
-Comprobaciones: 55 pruebas, compilación web y preparación Android. Se verifican filtrados, campos obligatorios, cero, decimales, filas sin duplicados, rechazos sin escrituras parciales, historial y compatibilidad. Las pruebas HTTP y de Apps Script son simuladas; la hoja nueva y sus encabezados se comprobaron en Google. La compilación valida firma, ID, versión Android y ajuste del teclado antes de publicar. La captura y sincronización en un celular físico requieren la prueba del propietario.
+Instala **Riego-0.1.13.apk** sobre la versión actual para conservar tu acceso y registros. Actualiza también los celulares del equipo para que muestren su referencia y comprueben el retiro al abrir la app.
+
+Validación: 68 pruebas automatizadas, compilación web y preparación Android. Las pruebas del servidor y HTTP son simuladas y no generan códigos ni revocan dispositivos reales. GitHub comprueba la firma, el identificador, la versión Android y el ajuste del teclado antes de publicar la APK.

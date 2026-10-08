@@ -5,16 +5,17 @@ import {cached,cache,clearAccessState} from "./riego-offline";
 import {endpointUrl} from "./access";
 import {DriveProtocolError,parseDriveReply,parseDriveGreeting,postDriveNative,verifyDriveNative} from "./drive-transport";
 import {RIEGO_ENDPOINT,APP_VERSION} from "./connection";
+import {managedAccessSchema,normalizeAccessName} from "./managed-access";
 
-export type Snapshot={records:Measurement[];geojson:GeoCollection;owner:boolean;sourceConnected:boolean;lastSync:string;units:Record<string,string>;scriptUrl?:string;profileName?:string;waterQualityAvailable?:boolean};
-type Session={endpoint:string;token:string;owner:boolean;name?:string};
+export type Snapshot={records:Measurement[];geojson:GeoCollection;owner:boolean;sourceConnected:boolean;lastSync:string;units:Record<string,string>;scriptUrl?:string;profileName?:string;waterQualityAvailable?:boolean;accessId?:string};
+type Session={endpoint:string;token:string;owner:boolean;name?:string;accessId?:string};
 const MASTER=validateGeo(JSON.parse(geoText));
 export class AccessError extends Error {code="ACCESS_DENIED";}
 export const configuredEndpoint=()=>cached<string>("endpoint");
 export async function configureEndpoint(value:string){await cache("endpoint",endpointUrl(value));}
 async function localSnapshot():Promise<Snapshot>{
   const session=await cached<Session>("session"),old=await cached<Snapshot>("snapshot");
-  return {records:old?.records??[],geojson:old?.geojson??MASTER,owner:session?.owner??false,profileName:session?.name??"",sourceConnected:Boolean(session),lastSync:old?.lastSync??"",units:old?.units??{},scriptUrl:session?.endpoint??await configuredEndpoint(),waterQualityAvailable:old?.waterQualityAvailable??false};
+  return {records:old?.records??[],geojson:old?.geojson??MASTER,owner:session?.owner??false,profileName:session?.name??"",accessId:session?.accessId??"",sourceConnected:Boolean(session),lastSync:old?.lastSync??"",units:old?.units??{},scriptUrl:session?.endpoint??await configuredEndpoint(),waterQualityAvailable:old?.waterQualityAvailable??false};
 }
 async function verifyConnection(endpoint:string):Promise<void>{
   try{
@@ -49,7 +50,7 @@ async function remote<T>(action:string,body:Record<string,unknown>={}):Promise<T
   const session=await cached<Session>("session");
   if(!session)throw new AccessError("Activa este dispositivo con tu código o QR.");
   try{return await request<T>(session.endpoint,{action,token:session.token,...body});}
-  catch(e){if(e instanceof AccessError)await clearAccessState();throw e;}
+  catch(e){if(e instanceof AccessError&&(await cached<Session>("session"))?.token===session.token)await clearAccessState();throw e;}
 }
 export async function api<T>(action:string,body?:unknown):Promise<T>{
   const b=(body??{}) as Record<string,unknown>;
@@ -57,8 +58,11 @@ export async function api<T>(action:string,body?:unknown):Promise<T>{
     case "status":{
       const session=await cached<Session>("session");
       if(!session)return {ok:false,owner:false} as T;
-      const result=await remote<{ok:boolean;owner:boolean;name?:string}>("status");
-      await cache("session",{...session,owner:result.owner,name:result.name??session.name});return result as T;
+      const result=await remote<{ok:boolean;owner:boolean;name?:string;accessId?:string}>("status");
+      // A concurrent revocation check must not restore a session cleared by another request.
+      const current=await cached<Session>("session");
+      if(!current)return {ok:false,owner:false} as T;
+      if(current.token===session.token)await cache("session",{...current,owner:result.owner,name:result.name??current.name,accessId:result.accessId??current.accessId});return result as T;
     }
     case "activate":{
       const code=String(b.code??"").replace(/\s+/g,"").toUpperCase(),name=String(b.name??"").trim().replace(/\s+/g," ");
@@ -70,11 +74,11 @@ export async function api<T>(action:string,body?:unknown):Promise<T>{
       const old=await cached<Snapshot>("snapshot");if(old?.records.some(r=>!r.synced)&&old.scriptUrl!==endpoint)throw new Error("Hay mediciones de otra conexión pendientes. Sincronízalas antes de cambiar de archivo.");
       await verifyConnection(endpoint);
       await configureEndpoint(endpoint);
-      const r=await request<{ok:boolean;token:string;owner:boolean;name?:string;units:Record<string,string>}>(endpoint,{action:"activate",code,principal:b.principal,name});
+      const r=await request<{ok:boolean;token:string;owner:boolean;name?:string;accessId?:string;units:Record<string,string>}>(endpoint,{action:"activate",code,principal:b.principal,name});
       if(typeof r.token!=="string"||!/^[a-f0-9]{64}$/.test(r.token)||typeof r.owner!=="boolean")throw new DriveProtocolError("Google confirmó una respuesta de activación incompleta. No se guardó un acceso inválido en este dispositivo.");
       if(b.principal===true&&!r.owner)throw new AccessError("Este código no permite crear un acceso principal.");
-      await cache("session",{endpoint,token:r.token,owner:r.owner,name:r.name??name});await cache("activated",true);
-      await cache("snapshot",{records:old?.scriptUrl===endpoint?old.records:[],geojson:old?.scriptUrl===endpoint?old.geojson:MASTER,owner:r.owner,profileName:r.name??name,sourceConnected:true,lastSync:old?.scriptUrl===endpoint?old.lastSync:"",units:r.units??{},scriptUrl:endpoint});
+      await cache("session",{endpoint,token:r.token,owner:r.owner,name:r.name??name,accessId:r.accessId??""});await cache("activated",true);
+      await cache("snapshot",{records:old?.scriptUrl===endpoint?old.records:[],geojson:old?.scriptUrl===endpoint?old.geojson:MASTER,owner:r.owner,profileName:r.name??name,accessId:r.accessId??"",sourceConnected:true,lastSync:old?.scriptUrl===endpoint?old.lastSync:"",units:r.units??{},scriptUrl:endpoint});
       return {ok:true} as T;
     }
     case "records":return await localSnapshot() as T;
@@ -110,7 +114,23 @@ export async function api<T>(action:string,body?:unknown):Promise<T>{
       if(waterHeld)throw new Error("Calidad de agua sigue guardada en este celular. La conexión de Drive necesita actualizarse para recibir estos registros; las demás mediciones se sincronizaron.");
       return {...s,written,read:latest.length} as T;
     }
-    case "invite":return await remote<T>("invite");
+    case "invite":{
+      if(b.name===undefined)return await remote<T>("invite");
+      const name=normalizeAccessName(b.name);
+      const status=await remote<{capabilities?:{accessManagement?:boolean}}>("status");
+      if(!status.capabilities?.accessManagement)throw new Error("La conexión de Drive necesita actualizarse para crear accesos con nombre.");
+      return await remote<T>("invite",{name,accessManagement:true});
+    }
+    case "accesses":{
+      const result=await remote<{accesses:unknown[]}>("accesses");
+      if(!Array.isArray(result.accesses))throw new Error("No se pudo leer la lista de accesos.");
+      return {accesses:result.accesses.map(row=>managedAccessSchema.parse(row))} as T;
+    }
+    case "access_rename":case "access_cancel":case "access_revoke":{
+      const id=String(b.id??"");if(!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(id))throw new Error("Referencia de acceso inválida.");
+      const result=await remote<{access:unknown}>(action,{id,...(action==="access_rename"?{name:normalizeAccessName(b.name)}:{})});
+      return {access:managedAccessSchema.parse(result.access)} as T;
+    }
     case "config":{
       const s=await localSnapshot();if(!s.owner)throw new Error("La conexión se configura desde tu dispositivo principal.");
       const entered=String(b.scriptUrl??s.scriptUrl??"");

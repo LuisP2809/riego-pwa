@@ -10,17 +10,17 @@ import CompactionFields from "@/components/compaction-fields";
 import PressureFields from "@/components/pressure-fields";
 import WaterQualityCapture from "@/components/water-quality-capture";
 import LocationFields from "@/components/location-fields";
+import AccessManager from "@/components/access-manager";
+import {accessReference} from "@/lib/managed-access";
 import Picker from "@/components/field-picker";
 import {changeLocation} from "@/lib/locations";
 import {Capacitor} from "@capacitor/core";
 import {App as NativeApp} from "@capacitor/app";
 import {api,configuredEndpoint,configureEndpoint,AccessError,type Snapshot} from "@/lib/api";
-import {parseAccess,accessLink} from "@/lib/access";
+import {parseAccess} from "@/lib/access";
 import {RIEGO_ENDPOINT,APP_VERSION} from "@/lib/connection";
-import {scanAccess,shareQr,shareText} from "@/lib/native";
-import scriptSource from "../apps-script/Riego.gs?raw";
-import {Droplets,Gauge,Layers,FlaskConical,ChartNoAxesCombined,MapPinned,RefreshCw,Plus,Wifi,WifiOff,LogOut,QrCode,Download,Check,Copy,MapPin,CalendarDays,Inbox,CloudUpload} from "lucide-react";
-import QRCode from "qrcode";
+import {scanAccess} from "@/lib/native";
+import {Droplets,Gauge,Layers,FlaskConical,ChartNoAxesCombined,MapPinned,RefreshCw,Plus,Wifi,WifiOff,LogOut,QrCode,Download,Check,MapPin,CalendarDays,Inbox,CloudUpload} from "lucide-react";
 import {Tabs,TabsList,TabsTrigger,TabsContent} from "@/components/ui/tabs";
 import {Dialog,DialogContent,DialogTitle,DialogDescription} from "@/components/ui/dialog";
 import {Table,TableHeader,TableBody,TableRow,TableHead,TableCell} from "@/components/ui/table";
@@ -41,7 +41,7 @@ function Blank({title,detail}:{title:string;detail:string}){return <Empty classN
 export default function Page(){
  const [tab,setTab]=useState("HUMEDADES"),[snapshot,setSnapshot]=useState<Snapshot|null>(null),[queue,setQueue]=useState<Measurement[]>([]),[authorized,setAuthorized]=useState(false),[loaded,setLoaded]=useState(false),[online,setOnline]=useState(true),[busy,setBusy]=useState(false),[problem,setProblem]=useState("");
  const [sharedEntry,setSharedEntry]=useState(0);
- const [connectDraft,setConnectDraft]=useState(""),[code,setCode]=useState(""),[settingsOpen,setSettingsOpen]=useState(false),[scriptUrl,setScriptUrl]=useState(""),[unitDraft,setUnitDraft]=useState<Record<string,string>>({}),[invite,setInvite]=useState<{code:string;expiresAt:number;qr:string;url:string}|null>(null),[install,setInstall]=useState<InstallEvent|null>(null);
+ const [connectDraft,setConnectDraft]=useState(""),[code,setCode]=useState(""),[settingsOpen,setSettingsOpen]=useState(false),[scriptUrl,setScriptUrl]=useState(""),[unitDraft,setUnitDraft]=useState<Record<string,string>>({}),[install,setInstall]=useState<InstallEvent|null>(null);
  const [kind,setKind]=useState<Kind>("HUMEDADES"),[lugar,setLugar]=useState("all"),[fundo,setFundo]=useState("all"),[lote,setLote]=useState("all"),[from,setFrom]=useState(""),[to,setTo]=useState(""),[dimension,setDimension]=useState("all"),[metric,setMetric]=useState("average");
  const [analyticsFilters,setAnalyticsFilters]=useState(defaultAnalyticsFilters);
  const inFlight=useRef(false),mapInput=useRef<HTMLInputElement>(null);
@@ -58,7 +58,7 @@ export default function Page(){
  async function acceptSnapshot(s:Snapshot){setSnapshot(s);setScriptUrl(s.scriptUrl??"");setUnitDraft(s.units??{});await cache("snapshot",s);}
  async function flush(){while(inFlight.current)await new Promise(resolve=>setTimeout(resolve,40));if(!navigator.onLine)return;inFlight.current=true;try{const pending=await queued();for(let i=0;i<pending.length;i+=100){const {saved}=await api<{saved:string[]}>("save",{records:pending.slice(i,i+100)});await acknowledge(saved);}setQueue(await queued());await acceptSnapshot(await api<Snapshot>("records"));setProblem("");}finally{inFlight.current=false;}}
  useEffect(()=>{
-  let cancelled=false;const on=()=>{setOnline(true);void flush().catch(e=>{if(e instanceof AccessError)setAuthorized(false);setProblem(e.message);});},off=()=>setOnline(false),installHandler=(e:Event)=>{e.preventDefault();setInstall(e as InstallEvent);};
+  let cancelled=false;const on=()=>{setOnline(true);void(async()=>{const access=await api<{ok:boolean}>("status");if(!access.ok){setAuthorized(false);await cache("activated",false);return;}await flush();})().catch(e=>{if(e instanceof AccessError){setAuthorized(false);setSettingsOpen(false);}setProblem(e.message);});},off=()=>setOnline(false),installHandler=(e:Event)=>{e.preventDefault();setInstall(e as InstallEvent);};
   window.addEventListener("online",on);window.addEventListener("offline",off);window.addEventListener("beforeinstallprompt",installHandler);setOnline(navigator.onLine);
   void(async()=>{try{const old=await cached<Snapshot>("snapshot");if(old&&!cancelled){setSnapshot(old);setUnitDraft(old.units);setScriptUrl(old.scriptUrl??"");}setQueue(await queued());const hash=new URLSearchParams(location.hash.slice(1));let entry=hash.get("codigo");const server=hash.get("servidor");if(server)await configureEndpoint(server);if(Capacitor.isNativePlatform()){const launch=await NativeApp.getLaunchUrl();if(launch?.url){const a=parseAccess(launch.url);entry=a.code;if(a.endpoint)await configureEndpoint(a.endpoint);}}setConnectDraft(await configuredEndpoint()??RIEGO_ENDPOINT);if(entry){setCode(entry);setSharedEntry(v=>v+1);history.replaceState(null,"",location.pathname+location.search);}if(!navigator.onLine){setAuthorized(Boolean(await cached("activated")));return;}let access=await api<{ok:boolean;owner:boolean}>("status");if(!access.ok&&entry){await api("activate",{code:entry,principal:false});access=await api("status");}if(cancelled)return;setAuthorized(access.ok);await cache("activated",access.ok);if(access.ok)await flush();}catch(e){if(!cancelled){setAuthorized(e instanceof AccessError?false:Boolean(await cached("activated")));if(e instanceof AccessError)setAuthorized(false);setProblem((e as Error).message);}}finally{if(!cancelled)setLoaded(true);}})();
   if(!Capacitor.isNativePlatform()&&"serviceWorker"in navigator)void navigator.serviceWorker.register(import.meta.env.BASE_URL+"sw.js").then(async()=>{
@@ -70,6 +70,25 @@ export default function Page(){
   return()=>{cancelled=true;window.removeEventListener("online",on);window.removeEventListener("offline",off);window.removeEventListener("beforeinstallprompt",installHandler);};
  // eslint-disable-next-line react-hooks/exhaustive-deps
  },[]);
+ // Validate on foreground, reconnect and periodically while open. Network failures keep offline work available.
+ useEffect(()=>{
+  if(!loaded||!authorized||!online)return;
+  let cancelled=false,checking=false,handle:{remove:()=>Promise<void>}|undefined;
+  const check=async(nativeActive=false)=>{
+   if(cancelled||checking||!navigator.onLine||(!nativeActive&&document.visibilityState==="hidden"))return;
+   checking=true;
+   try{
+    const access=await api<{ok:boolean}>("status");if(cancelled)return;
+    if(!access.ok){await cache("activated",false);setAuthorized(false);setSettingsOpen(false);return;}
+    const current=await api<Snapshot>("records");if(!cancelled)setSnapshot(current);
+   }catch(error){if(!cancelled&&error instanceof AccessError){setAuthorized(false);setSettingsOpen(false);setProblem(error.message);}}
+   finally{checking=false;}
+  };
+  const foreground=()=>void check();window.addEventListener("focus",foreground);document.addEventListener("visibilitychange",foreground);
+  const timer=window.setInterval(foreground,60000);void check();
+  if(Capacitor.isNativePlatform())void NativeApp.addListener("appStateChange",event=>{if(event.isActive)void check(true);}).then(listener=>{if(cancelled)void listener.remove();else handle=listener;}).catch(()=>{});
+  return()=>{cancelled=true;window.clearInterval(timer);window.removeEventListener("focus",foreground);document.removeEventListener("visibilitychange",foreground);void handle?.remove();};
+ },[loaded,authorized,online]);
  useEffect(()=>{const context=(document as unknown as {modelContext?:{registerTool:(tool:unknown,options:{signal:AbortSignal})=>unknown}}).modelContext;if(!context||!authorized)return;const controller=new AbortController();try{void Promise.resolve(context.registerTool({name:"open_riego_section",title:"Abrir apartado de riego",description:"Abre un apartado de riego sin guardar mediciones.",inputSchema:{type:"object",properties:{section:{type:"string",enum:NAV.map(n=>n.id)}},required:["section"],additionalProperties:false},annotations:{readOnlyHint:true},execute:async(input:unknown)=>{const section=(input as {section?:string})?.section;if(!NAV.some(n=>n.id===section))throw new Error("Apartado inválido");setTab(section!);await new Promise(resolve=>setTimeout(resolve,0));return {section};}},{signal:controller.signal})).catch(()=>{});}catch{}return()=>controller.abort();},[authorized]);
  async function activateDevice(input:ActivationInput){
   setBusy(true);setProblem("");
@@ -105,7 +124,6 @@ export default function Page(){
  }
  async function sync(){setBusy(true);try{await flush();const s=await api<Snapshot&{written:number;read:number}>("sync",{});await acceptSnapshot(s);toast.success(`Drive actualizado: ${s.written} enviados, ${s.read} registros disponibles.`);setProblem("");}catch(e){if(e instanceof AccessError)setAuthorized(false);setProblem((e as Error).message);}finally{setBusy(false);}}
  async function logout(){if(queue.length){toast.error("Envía primero las mediciones pendientes de este dispositivo.");return;}if(!online){toast.error("Conéctate para cerrar el acceso.");return;}try{await api("logout",{});setAuthorized(false);setSnapshot(null);setProblem("");}catch(e){if(e instanceof AccessError)setAuthorized(false);setProblem((e as Error).message);}}
- async function makeInvite(){setBusy(true);try{const r=await api<{code:string;expiresAt:number}>("invite",{});const url=accessLink(scriptUrl,r.code);setInvite({...r,url,qr:await QRCode.toDataURL(url,{width:280,margin:2,color:{dark:"#064d40",light:"#ffffff"}})});}catch(e){toast.error((e as Error).message);}finally{setBusy(false);}}
  async function saveSettings(){setBusy(true);try{await acceptSnapshot(await api<Snapshot>("config",{scriptUrl,units:{...unitDraft,prof:"cm"}}));toast.success("Unidades guardadas.");setProblem("");}catch(e){toast.error((e as Error).message);}finally{setBusy(false);}}
  async function importMap(file:File){if(file.size>3000000){toast.error("Carga un GeoJSON menor a 3 MB.");return;}setBusy(true);try{await acceptSnapshot(await api<Snapshot>("config",{geojson:JSON.parse(await file.text())}));toast.success("Mapa de lotes cargado.");}catch(e){toast.error((e as Error).message);}finally{setBusy(false);}}
  const locations=useMemo(()=>[...(snapshot?.geojson?.features.map(featureLocation)??[]),...all.filter(r=>r.kind!=="CALIDAD_AGUA").map(r=>({lugar:r.lugar,fundo:r.fundo,modulo:r.modulo,lote:r.lote}))],[snapshot?.geojson,all]);
@@ -125,7 +143,7 @@ export default function Page(){
  if(!loaded)return <div className="startup"><Droplets size={36}/><p>Abriendo Riego…</p></div>;
  if(!authorized)return <><Toaster richColors/><RiegoOnboarding sharedEntry={sharedEntry} endpoint={connectDraft} code={code} busy={busy} online={online} problem={problem} onEndpoint={setConnectDraft} onCode={setCode} onActivate={activateDevice} onScan={scanLogin} onClearProblem={()=>setProblem("")}/></>;
  return <><Toaster richColors position="top-center"/><header className="topbar"><div className="topbar-inner"><div className="brand"><span className="brandmark"><Droplets size={26}/></span><div><strong>Riego</strong><span>Campo</span></div></div><div className="top-actions"><span className={`connection ${online?"":"offline"}`}>{online?<Wifi size={16}/>:<WifiOff size={16}/>}<span>{online?"En línea":"Sin conexión"}</span></span>{install&&<button className="quiet" onClick={async()=>{await install.prompt();await install.userChoice;setInstall(null);}}><Download size={18}/><span>Instalar app</span></button>}{snapshot?.owner&&<button className="quiet access-trigger" aria-label="Mis accesos" onClick={()=>setSettingsOpen(true)}><QrCode size={21}/><span>Mis accesos</span></button>}{!snapshot?.owner&&<button className="icon-button" aria-label="Cerrar acceso" onClick={()=>void logout()}><LogOut size={20}/></button>}</div></div></header>
- <main className="workspace"><div className="workspace-title"><div><p className="eyebrow">CONTROL DE RIEGO</p><h1>Mediciones de campo</h1>{snapshot?.owner&&<span className="device-label">Dispositivo principal{snapshot.profileName?" · "+snapshot.profileName:""}</span>}</div><button className="primary sync" onClick={()=>void sync()} disabled={busy||!online}><RefreshCw size={18} className={busy?"spinning":""}/><span>{busy?"Procesando…":"Sincronizar con Drive"}</span></button></div>
+ <main className="workspace"><div className="workspace-title"><div><p className="eyebrow">CONTROL DE RIEGO</p><h1>Mediciones de campo</h1><span className="device-label">{snapshot?.owner?"Dispositivo principal":"Mi acceso"}{snapshot?.profileName?" · "+snapshot.profileName:""}</span>{!snapshot?.owner&&snapshot?.accessId&&<span className="device-label">Referencia {accessReference(snapshot.accessId)}</span>}</div><button className="primary sync" onClick={()=>void sync()} disabled={busy||!online}><RefreshCw size={18} className={busy?"spinning":""}/><span>{busy?"Procesando…":"Sincronizar con Drive"}</span></button></div>
  {problem&&<div className="notice error-notice" role="alert">{problem}<button aria-label="Cerrar aviso" onClick={()=>setProblem("")}>×</button></div>}{!snapshot?.sourceConnected&&<div className="notice"><CloudUpload size={19}/><div><strong>Conexión con Drive pendiente.</strong> Puedes registrar mediciones; quedan guardadas en la app hasta conectar el archivo.</div>{snapshot?.owner&&<button className="text-button" onClick={()=>setSettingsOpen(true)}>Conectar</button>}</div>}
  <div className="stats"><div className="stat"><span>Mediciones</span><strong>{all.length.toLocaleString("es-PE")}</strong><span className="stat-note">En los cuatro apartados</span></div><div className="stat"><span>Lotes evaluados</span><strong>{new Set(all.filter(r=>r.kind!=="CALIDAD_AGUA").map(r=>[r.lugar,r.fundo,r.modulo,r.lote].join("|"))).size}</strong><span className="stat-note">Con al menos una medición</span></div><div className="stat"><span>Pendientes de Drive</span><strong className={pendingCount?"amber":""}>{pendingCount}</strong><span className="stat-note">{queue.length?`${queue.length} todavía en este dispositivo`:"Guardados en la app"}</span></div><div className="stat"><span>Última sincronización</span><strong className="date-stat">{snapshot?.lastSync?new Intl.DateTimeFormat("es-PE",{timeZone:"America/Lima",day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}).format(new Date(snapshot.lastSync)):"Pendiente"}</strong><span className="stat-note">Archivo de Drive</span></div></div>
  <Tabs value={tab} onValueChange={v=>{setTab(v);setProblem("");if((KINDS as readonly string[]).includes(v)){setKind(v as Kind);setDimension("all");}}} className="modules"><TabsList className="module-tabs" aria-label="Apartados de riego">{NAV.map(n=><TabsTrigger key={n.id} value={n.id}><n.icon size={20}/><span>{n.label}</span></TabsTrigger>)}</TabsList>
@@ -138,21 +156,10 @@ export default function Page(){
  <TabsContent value="mapa"><section className="panel analysis-panel"><div className="panel-heading between"><div><p className="eyebrow">DISTRIBUCIÓN EN CAMPO</p><h2>Mapa de lotes</h2></div>{snapshot?.owner&&<button className="secondary" disabled={busy||!online} onClick={()=>mapInput.current?.click()}><MapPin size={17}/>{snapshot?.geojson?"Actualizar mapa":"Cargar GeoJSON"}</button>}</div>{controls}</section><section className="panel map-panel">{snapshot?.geojson?<><FieldMap geojson={snapshot.geojson} records={selected} metric={metric} unit={unit} kind={kind}/>{kind!=="HUMEDADES"?<div className="map-legend"><RangeLegend kind={kind}/></div>:<div className="map-legend"><div><strong>Promedio por lote</strong><span>Humedad (%)</span></div><div className="color-scale"><span>0 %</span><span className="gradient"/><span>100 %</span></div><span className="no-data-key">Sin mediciones</span></div>}<p className="map-note">{mappedCount} de {selected.length} mediciones coinciden con un polígono. {kind==="HUMEDADES"?"Colores según el promedio de humedad.":"Colores según los límites de compactación o presión definidos."}</p></>:<div className="map-empty"><MapPinned size={48}/><h3>Falta el mapa de tus lotes</h3><p>Carga el GeoJSON de Fenología o Fitosanidad para vincular las mediciones a sus polígonos.</p>{snapshot?.owner&&<button className="primary" onClick={()=>mapInput.current?.click()} disabled={busy||!online}>Cargar mapa de lotes</button>}</div>}</section></TabsContent>
  </Tabs><footer className="workspace-footer"><span>Riego · v{APP_VERSION}</span><span>Humedades · Compactación · Presiones · Calidad de agua</span></footer></main>
  <input ref={mapInput} type="file" accept=".geojson,.json,application/geo+json,application/json" className="sr-only" onChange={e=>{const f=e.target.files?.[0];if(f)void importMap(f);e.target.value="";}}/>
- <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}><DialogContent className="settings-dialog">
-  <DialogTitle>Mis accesos</DialogTitle><DialogDescription>Desde tu dispositivo principal puedes dar acceso a cada celular de tu equipo.</DialogDescription>
+ <Dialog open={settingsOpen&&Boolean(snapshot?.owner)} onOpenChange={setSettingsOpen}><DialogContent className="settings-dialog">
+  <DialogTitle>Mis accesos</DialogTitle><DialogDescription>Crea un QR con nombre, revisa los accesos de tu equipo y retíralos cuando lo necesites.</DialogDescription>
   <div className="settings-scroll">
-   <section className="access-section"><h3>Crear un acceso</h3><p>Cada código se usa una vez y vence en 24 horas.</p>
-    <button className="primary" onClick={()=>void makeInvite()} disabled={busy||!online}><QrCode size={19}/>Generar código y QR</button>
-    {invite&&<div className="invite"><img src={invite.qr} width={240} height={240} alt="QR para activar un dispositivo de riego"/>
-     <strong className="invite-code">{invite.code.match(/.{1,4}/g)?.join(" ")}</strong>
-     <span className="small">Vence: {new Intl.DateTimeFormat("es-PE",{timeZone:"America/Lima",dateStyle:"short",timeStyle:"short"}).format(new Date(invite.expiresAt))}</span>
-     <div className="invite-actions">
-      <button className="secondary" onClick={()=>void navigator.clipboard.writeText(invite.code).then(()=>toast.success("Código copiado"))}><Copy size={16}/>Copiar código</button>
-      <button className="secondary" onClick={()=>void navigator.clipboard.writeText(invite.url).then(()=>toast.success("Acceso copiado"))}><Copy size={16}/>Copiar acceso completo</button>
-      <button className="secondary" onClick={()=>void shareQr(invite.qr,invite.url).catch(e=>toast.error(e.message))}><Download size={16}/>Compartir QR</button>
-     </div><p className="small">En el otro celular instala Riego y elige Tengo un código o QR. El QR o el acceso completo incluyen la conexión automáticamente.</p>
-    </div>}
-   </section>
+   {snapshot?.owner&&<AccessManager open={settingsOpen} online={online} disabled={busy} endpoint={scriptUrl} onAccessDenied={message=>{setAuthorized(false);setSettingsOpen(false);setProblem(message);}}/>}
    <details className="connection-details"><summary>Unidades y archivo de Drive</summary>
     <p><a href="https://docs.google.com/spreadsheets/d/1JgvxAAqxLuPGjLkBoj6XpHl3f8n_8Q9ouavMOb8BRfA/edit?usp=drivesdk" target="_blank" rel="noreferrer">Abrir mi archivo de riego</a></p>
     <div className="unit-grid">{[{key:"prof",label:"Unidad de profundidad"},{key:"compactacion",label:"Unidad de compactación"},{key:"presion",label:"Unidad de presión"}].map(u=><label className="field" key={u.key}><span>{u.label}</span><input value={u.key==="prof"?"cm":unitDraft[u.key]??""} readOnly={u.key==="prof"} onChange={e=>setUnitDraft({...unitDraft,[u.key]:e.target.value})} maxLength={30}/></label>)}</div>
