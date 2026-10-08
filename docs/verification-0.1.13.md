@@ -13,3 +13,5 @@ Código publicado: `3fab09f1be2b89c09fd7da2183f9ab169495275c`.
 La descarga del ZIP a este entorno respondió HTTP 403; no se afirma una inspección local de los bytes de la APK publicada. La firma y el manifiesto se verificaron en CI; la publicación y su digest se comprobaron en GitHub. No se probó en un celular físico.
 
 El código Apps Script preparado tiene SHA-256 `15df816c1079900b89a7f29d77c268405f4d9ffecf21c6e544781adad1f687e2`. **Su actualización en Google sigue pendiente**: el inicio de sesión seguro fue interrumpido y no se obtuvo una sesión autenticada. No se modificaron el código ni la implementación de Google durante esta entrega, no se generaron invitaciones reales, no se retiraron accesos y no se rotó la clave inicial. Debe actualizarse la implementación existente antes de usar la administración de accesos. El README y las notas de la versión explican ese paso.
+
+El intento posterior de habilitación del 8 de octubre de 2026 tampoco publicó cambios: el acceso de Google devolvió **502 Bad Gateway / Connection refused**, incluido el reintento mediante recarga. [Procedimiento de publicación desde la cuenta del propietario](activar-mis-accesos.md).
