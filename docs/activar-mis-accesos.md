@@ -1,6 +1,6 @@
 # Actualizar Mis accesos en Riego 0.1.14
 
-La versión 0.1.14 muestra primero los accesos activos y pendientes y permite quitar los accesos finalizados del listado. El código de Google necesita actualizarse para habilitar esta última función. No se ha comprobado su publicación en la cuenta del propietario durante esta entrega.
+La versión 0.1.14 muestra primero los accesos activos y pendientes y permite quitar los accesos finalizados del listado. La conexión del propietario ya está actualizada: Google confirmó la **versión 4 del 9 de octubre de 2026, 16:54 (Perú)**, con el mismo enlace `/exec` y los mismos permisos. La comprobación **verificarGestionAccesos** finalizó correctamente sin modificar accesos ni mediciones. Para esa conexión, solo instala la APK actualizada y sigue los pasos 5 y 6. Los pasos de publicación siguientes sirven para otras conexiones o actualizaciones futuras.
 
 ## Publicar desde tu cuenta
 

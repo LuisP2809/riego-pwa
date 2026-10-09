@@ -13,6 +13,8 @@ El servidor rechaza las solicitudes de un acceso retirado. La APK comprueba su v
 
 **Eliminar del listado requiere el código de Apps Script de esta versión.** Actualiza el proyecto existente con **apps-script/Riego.gs** y publica una nueva versión de la misma implementación, conservando su enlace y configuración. No ejecutes **configurarRiego** ni generes otra clave inicial para esta actualización. **verificarGestionAccesos** solo comprueba los dispositivos existentes, sin crear códigos ni retirar accesos. Si la conexión aún es anterior, la app pide actualizarla antes de enviar una eliminación.
 
+La conexión del propietario ya fue actualizada el 9 de octubre de 2026 a las 16:54 (Perú): Google confirmó la versión 4 y conservó el enlace `/exec` y los permisos existentes. La comprobación de accesos finalizó correctamente, sin modificar sus propiedades ni las mediciones.
+
 Instala **Riego-0.1.14.apk** sobre la versión actual para conservar tu acceso y registros. Si Android rechaza la actualización, conserva la app instalada y anota el mensaje exacto para revisar el problema.
 
 Validación: 74 pruebas automatizadas, compilación web y preparación Android. Las pruebas del servidor y HTTP son simuladas y no generan códigos ni revocan dispositivos reales. La limpieza se comprueba con reintentos, cambios durante la espera, conexiones antiguas, sesiones del principal, refresco del listado y conservación de mediciones. GitHub comprueba la firma, el identificador, la versión Android y el ajuste del teclado antes de publicar la APK.
