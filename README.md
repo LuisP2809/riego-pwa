@@ -4,7 +4,7 @@ Aplicación Android y PWA para capturar y consultar **Humedades, Compactación, 
 
 ## Descargar e instalar
 
-Abre **Releases** de este repositorio y descarga el archivo `Riego-0.1.14.apk`. Android puede pedir que permitas la instalación desde el navegador o el gestor de archivos. El identificador de la app es `pe.riego.campo`, independiente de Fenología y Fitosanidad.
+Abre **Releases** de este repositorio y descarga el archivo `Riego-0.1.15.apk`. Android puede pedir que permitas la instalación desde el navegador o el gestor de archivos. El identificador de la app es `pe.riego.campo`, independiente de Fenología y Fitosanidad.
 
 El workflow **APK descargable de Riego** compila cada cambio de `main`, verifica la firma de actualización, el ID, la versión Android y el ajuste del teclado, guarda el APK en Actions y lo publica en Releases. Para publicar otra versión, aumenta `version` en `package.json`. No sobrescribe versiones ya publicadas con un cambio de código distinto.
 
@@ -33,6 +33,14 @@ Archivo identificado del propietario: `1JgvxAAqxLuPGjLkBoj6XpHl3f8n_8Q9ouavMOb8B
 Si pierdes el acceso del dispositivo principal, ejecuta **crearAccesoPropietario** en Apps Script para emitir un nuevo código inicial. Esto requiere acceso al proyecto de Google; la app no puede adjudicarse ese acceso por sí sola.
 
 La conexión del propietario fue publicada el 7 de octubre de 2026 y la función de configuración verificó los encabezados de las tres hojas. El enlace público se integra en el APK; las claves y los tokens no se incluyen en el repositorio. El propietario confirmó que ya pudo entrar el 7 de octubre de 2026. El propietario también confirmó pruebas de captura de humedades en el teléfono. La sincronización desde el teléfono aún requiere su comprobación.
+
+## Diseño de Riego 0.1.15
+
+![Logo de Riego](public/icon-192.png)
+
+La app usa un logo de gota, hoja y surcos, verde bosque y fondos claros. El inicio, los indicadores, los formularios, las gráficas, el mapa y Mis accesos comparten el mismo diseño. En el celular, el historial muestra tarjetas con los datos y su estado; en pantallas grandes se mantiene la tabla. Los campos conservan su tamaño de lectura y los selectores nativos del dispositivo. El ícono y la apertura de Android también usan el nuevo símbolo.
+
+Instala la APK sobre la versión existente, sin desinstalarla. Este rediseño no necesita otra clave inicial ni publicar nuevamente la conexión de Google. [Verificación de esta versión](docs/verification-0.1.15.md).
 
 ## Capturar humedades
 

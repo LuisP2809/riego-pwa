@@ -1,6 +1,7 @@
 import {useState, useEffect, type FormEvent} from "react";
-import {ArrowLeft, ArrowRight, Droplets, QrCode, UserRound} from "lucide-react";
+import {ArrowLeft, ArrowRight, Droplets, Layers, MapPinned, QrCode, UserRound} from "lucide-react";
 import {APP_VERSION,RIEGO_ENDPOINT,RIEGO_FILE_LABEL} from "@/lib/connection";
+import RiegoBrand from "@/components/riego-brand";
 
 export type ActivationInput = {endpoint: string; code: string; principal: boolean; name?: string};
 type Props = {
@@ -31,10 +32,11 @@ export default function RiegoOnboarding(props: Props) {
   }
   return <div className="activation"><main className="activation-card">
     {screen !== "welcome" && <button type="button" className="onboarding-back" disabled={props.busy} onClick={() => go(screen === "connection" ? "profile" : "welcome")}><ArrowLeft size={17}/>Volver</button>}
-    <div className="brandmark"><Droplets size={30}/></div>
+    <RiegoBrand className="onboarding-brand"/>
     {screen === "welcome" ? <>
-      <p className="eyebrow">BIENVENIDO</p><h1>Riego</h1>
-      <p>Configura primero tu acceso principal. Desde ahí podrás dar acceso a tu equipo.</p>
+      <p className="eyebrow">TU CAMPO, CONECTADO</p><h1>Cada medición<br/>cuenta.</h1>
+      <p>Registra, consulta y entiende el riego de tus campos. Empieza con tu acceso principal y comparte el acceso con tu equipo.</p>
+      <div className="onboarding-features"><span><Droplets size={16}/>Agua</span><span><Layers size={16}/>Suelo</span><span><MapPinned size={16}/>Tus lotes</span></div>
       <button type="button" className="primary full" onClick={() => go("profile")}><UserRound size={19}/>Crear mi acceso principal</button>
       <button type="button" className="text-button onboarding-member" onClick={() => go("member")}>Tengo un código o QR</button>
     </> : screen === "profile" ? <>
@@ -47,7 +49,7 @@ export default function RiegoOnboarding(props: Props) {
     </> : screen === "connection" ? <>
       <p className="eyebrow">PASO 2 DE 2</p><h1>Activa tu acceso</h1>
       <p><strong>{name.trim()}</strong>, la conexión de tu archivo ya está preparada. Pega tu clave inicial para crear tu acceso principal.</p>
-      <div className="prepared-connection"><strong>{RIEGO_FILE_LABEL}</strong><span>Humedades · Compactación · Presiones</span></div>
+      <div className="prepared-connection"><strong>{RIEGO_FILE_LABEL}</strong><span>Humedades · Compactación · Presiones · Calidad de agua</span></div>
       <form onSubmit={submit} className="onboarding-fields">
         <label className="field"><span>Clave inicial de configuración</span><input type="password" value={props.code} onChange={event => props.onCode(event.target.value)} placeholder="Pega tu clave inicial" autoComplete="off" spellCheck={false} maxLength={80} required/><small>Esta clave crea tu acceso principal. Los códigos para tu equipo se generan después.</small></label>
         <button className="primary full" disabled={props.busy || !props.online}>{props.busy ? "Creando tu acceso…" : "Crear mi acceso y entrar"}</button>
