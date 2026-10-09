@@ -79,7 +79,7 @@ function session_(props,p){
  if(typeof p.token!=='string'||!/^[a-f0-9]{64}$/.test(p.token))negar_();
  const key='DEVICE_'+hash_(p.token),raw=props.getProperty(key);
  if(!raw)negar_('Este dispositivo ya no tiene acceso. Solicita un nuevo código.');
- const device=JSON.parse(raw);if(device.revokedAt)negar_('El dispositivo principal retiró este acceso. Solicita un nuevo código.');if(device.closedAt)negar_('Este acceso se cerró. Solicita un nuevo código.');if(device.expiresAt<=Date.now())negar_('El acceso del dispositivo venció.');
+ const device=JSON.parse(raw);if(device.hiddenAt)negar_('Este acceso ya no está disponible. Solicita un nuevo código.');if(device.revokedAt)negar_('El dispositivo principal retiró este acceso. Solicita un nuevo código.');if(device.closedAt)negar_('Este acceso se cerró. Solicita un nuevo código.');if(device.expiresAt<=Date.now())negar_('El acceso del dispositivo venció.');
  return {key:key,owner:device.owner===true,name:String(device.name||''),accessId:String(device.id||'')};
 }
 function nombreAcceso_(value,required){const name=String(value||'').trim().replace(/\s+/g,' ');if(name.length>80||(required&&name.length<2))throw new Error('Escribe un nombre de 2 a 80 caracteres para este acceso.');return name;}
@@ -90,7 +90,7 @@ function activar_(props,p){
  else{
   if(!/^[A-Z0-9]{12}$/.test(code))negar_('Código inválido o vencido.');
   inviteKey='INVITE_'+hash;const raw=props.getProperty(inviteKey);invite=raw?JSON.parse(raw):null;
-  if(!invite||invite.cancelledAt||invite.expiresAt<=now)negar_('Código inválido, vencido o utilizado.');
+  if(!invite||invite.hiddenAt||invite.cancelledAt||invite.expiresAt<=now)negar_('Código inválido, vencido o utilizado.');
  }
  if(p.principal===true&&!owner)negar_('Para crear el acceso principal necesitas la clave inicial de configuración.');
  if(p.principal===false&&owner)negar_('Usa Crear mi acceso principal para configurar tu dispositivo.');
@@ -120,12 +120,12 @@ function accesoPublico_(key,value,now){
 function accesos_(props){
  const all=props.getProperties(),rows=[],now=Date.now();
  Object.keys(all).filter(function(key){return /^(DEVICE|INVITE)_[a-f0-9]{64}$/.test(key);}).forEach(function(key){
-  const value=JSON.parse(all[key]);if(value.owner===true)return;
+  const value=JSON.parse(all[key]);if(value.owner===true||value.hiddenAt)return;
   if(!value.id){value.id=Utilities.getUuid();props.setProperty(key,JSON.stringify(value));}
   rows.push(accesoPublico_(key,value,now));
  });
  rows.sort(function(a,b){return (b.activatedAt||b.createdAt)-(a.activatedAt||a.createdAt)||a.id.localeCompare(b.id);});
- return {ok:true,accesses:rows,capabilities:{accessManagement:true}};
+ return {ok:true,accesses:rows,capabilities:{accessManagement:true,accessCleanup:true}};
 }
 function buscarAcceso_(props,id){
  if(typeof id!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(id))throw new Error('Referencia de acceso inválida.');
@@ -136,6 +136,13 @@ function buscarAcceso_(props,id){
 function gestionarAcceso_(props,p,session){
  const entry=buscarAcceso_(props,p.id),value=entry.value,invitation=entry.key.indexOf('INVITE_')===0;
  if(value.owner===true||entry.key===session.key)throw new Error('El acceso principal se conserva; no se puede retirar desde esta lista.');
+ if(p.action==='access_hide'){
+  const status=accesoPublico_(entry.key,value,Date.now()).status;
+  if(['cancelled','revoked','expired','closed'].indexOf(status)<0)throw new Error('Primero cancela el QR o retira el acceso antes de eliminarlo del listado.');
+  // Keep the denial state so cleanup cannot reactivate a QR or a device.
+  value.hiddenAt=value.hiddenAt||Date.now();props.setProperty(entry.key,JSON.stringify(value));
+  return {ok:true,id:value.id};
+ }
  if(p.action==='access_rename')value.name=nombreAcceso_(p.name,true);
  else if(p.action==='access_cancel'){if(!invitation)throw new Error('El QR ya fue activado. Actualiza la lista para retirar el acceso del dispositivo.');value.cancelledAt=value.cancelledAt||Date.now();}
  else if(p.action==='access_revoke'){if(invitation)throw new Error('Este QR está pendiente. Usa Cancelar QR.');value.revokedAt=value.revokedAt||Date.now();}
@@ -146,7 +153,7 @@ function gestionarAcceso_(props,p,session){
 function verificarGestionAccesos(){
  const all=PropertiesService.getScriptProperties().getProperties();let devices=0;
  Object.keys(all).filter(function(key){return /^DEVICE_[a-f0-9]{64}$/.test(key);}).forEach(function(key){if(JSON.parse(all[key]).owner!==true)devices++;});
- console.log('Gestión de accesos preparada: nombres, lista, cancelar QR y retirar acceso. '+devices+' dispositivos compartidos existentes se conservan. No se crearon códigos ni se retiraron accesos.');
+ console.log('Gestión de accesos preparada: nombres, lista, cancelar QR, retirar acceso y eliminar del listado. '+devices+' dispositivos compartidos existentes se conservan. No se crearon códigos ni se retiraron accesos.');
 }
 function configuracion_(props,p){
  const units=p.units||{},out={};['prof','compactacion','presion'].forEach(function(k){const value=String(units[k]||'').trim();if(value.length>30)throw new Error('Unidad demasiado larga');out[k]=value;});
@@ -183,16 +190,16 @@ function doPost(e){
    lock=LockService.getScriptLock();lock.waitLock(30000);return respuesta_(activar_(props,p));
   }
   const session=session_(props,p);
-  if(p.action==='status')return respuesta_({ok:true,owner:session.owner,name:session.name,accessId:session.accessId,capabilities:{waterQuality:true,accessManagement:true}});
-  if(['invite','config','accesses','access_rename','access_cancel','access_revoke'].indexOf(p.action)>=0&&!session.owner)negar_('Este dispositivo no puede entregar accesos ni cambiar la conexión.');
-  if(['sync','invite','config','logout','accesses','access_rename','access_cancel','access_revoke'].indexOf(p.action)<0)throw new Error('Operación desconocida');
+  if(p.action==='status')return respuesta_({ok:true,owner:session.owner,name:session.name,accessId:session.accessId,capabilities:{waterQuality:true,accessManagement:true,accessCleanup:true}});
+  if(['invite','config','accesses','access_rename','access_cancel','access_revoke','access_hide'].indexOf(p.action)>=0&&!session.owner)negar_('Este dispositivo no puede entregar accesos ni cambiar la conexión.');
+  if(['sync','invite','config','logout','accesses','access_rename','access_cancel','access_revoke','access_hide'].indexOf(p.action)<0)throw new Error('Operación desconocida');
   lock=LockService.getScriptLock();lock.waitLock(30000);
   // Recheck after acquiring the lock, including expiration or revocation during the wait.
   session_(props,p);
   if(p.action==='sync')return respuesta_(sync_(props,p));
   if(p.action==='invite')return respuesta_(invitacion_(props,p));
   if(p.action==='accesses')return respuesta_(accesos_(props));
-  if(['access_rename','access_cancel','access_revoke'].indexOf(p.action)>=0)return respuesta_(gestionarAcceso_(props,p,session));
+  if(['access_rename','access_cancel','access_revoke','access_hide'].indexOf(p.action)>=0)return respuesta_(gestionarAcceso_(props,p,session));
   if(p.action==='config')return respuesta_(configuracion_(props,p));
   const device=JSON.parse(props.getProperty(session.key));device.closedAt=Date.now();props.setProperty(session.key,JSON.stringify(device));return respuesta_({ok:true});
  }catch(error){return respuesta_({ok:false,error:String(error.message||error),code:error.accessDenied?'ACCESS_DENIED':'REQUEST_ERROR'});}

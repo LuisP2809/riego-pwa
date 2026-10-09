@@ -126,6 +126,14 @@ export async function api<T>(action:string,body?:unknown):Promise<T>{
       if(!Array.isArray(result.accesses))throw new Error("No se pudo leer la lista de accesos.");
       return {accesses:result.accesses.map(row=>managedAccessSchema.parse(row))} as T;
     }
+    case "access_hide":{
+      const id=String(b.id??"");if(!managedAccessSchema.shape.id.safeParse(id).success)throw new Error("Referencia de acceso inválida.");
+      const status=await remote<{capabilities?:{accessCleanup?:boolean}}>("status");
+      if(status.capabilities?.accessCleanup!==true)throw new Error("Actualiza la conexión de Drive para eliminar accesos del listado.");
+      const result=await remote<{id:unknown}>("access_hide",{id});
+      if(result.id!==id)throw new Error("Drive no confirmó qué acceso se eliminó del listado. Pulsa Actualizar para comprobarlo.");
+      return {id} as T;
+    }
     case "access_rename":case "access_cancel":case "access_revoke":{
       const id=String(b.id??"");if(!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(id))throw new Error("Referencia de acceso inválida.");
       const result=await remote<{access:unknown}>(action,{id,...(action==="access_rename"?{name:normalizeAccessName(b.name)}:{})});

@@ -704,7 +704,7 @@ test('Retirar un dispositivo bloquea todas sus operaciones antes de acceder a la
  const b=backend(),invite=b.call('invite',{token:b.owner.token,name:'María Campos',accessManagement:true}),member=b.call('activate',{code:invite.code});
  assert(b.call('sync',{token:member.token,records:[base]}).ok);const rows=JSON.stringify(b.sheets.HUMEDADES.values),reads=b.reads;
  for(let i=0;i<2;i++){const result=b.call('access_revoke',{token:b.owner.token,id:member.accessId});assert(result.ok,result.error);assert.equal(result.access.status,'revoked');}
- for(const action of ['status','sync','invite','config','accesses','access_rename','access_cancel','access_revoke','logout'])assert.equal(b.call(action,{token:member.token,id:member.accessId,records:[],owner:true}).code,'ACCESS_DENIED',action);
+ for(const action of ['status','sync','invite','config','accesses','access_rename','access_cancel','access_revoke','access_hide','logout'])assert.equal(b.call(action,{token:member.token,id:member.accessId,records:[],owner:true}).code,'ACCESS_DENIED',action);
  assert.equal(b.reads,reads);assert.equal(JSON.stringify(b.sheets.HUMEDADES.values),rows);assert(b.call('status',{token:b.owner.token}).ok);
  assert.equal(b.call('activate',{code:invite.code}).code,'ACCESS_DENIED');
  const next=b.call('invite',{token:b.owner.token,name:'María Campos',accessManagement:true});assert.notEqual(next.id,member.accessId);assert(b.call('activate',{code:next.code}).ok);
@@ -712,11 +712,11 @@ test('Retirar un dispositivo bloquea todas sus operaciones antes de acceder a la
 test('Solo el principal administra accesos; ni su sesión ni otra sesión principal se pueden retirar',()=>{
  const b=backend(),invite=b.call('invite',{token:b.owner.token}),member=b.call('activate',{code:invite.code});
  const nextInitial=b.context.crearAccesoPropietario(),otherOwner=b.call('activate',{code:nextInitial});assert(otherOwner.owner);
- for(const action of ['accesses','access_rename','access_cancel','access_revoke']){
+ for(const action of ['accesses','access_rename','access_cancel','access_revoke','access_hide']){
   assert.equal(b.call(action,{id:member.accessId,name:'Intruso'}).code,'ACCESS_DENIED');
   const before=JSON.stringify(b.props);assert.equal(b.call(action,{token:member.token,owner:true,id:member.accessId,name:'Intruso'}).code,'ACCESS_DENIED');assert.equal(JSON.stringify(b.props),before);
  }
- for(const id of [b.owner.accessId,otherOwner.accessId])for(const action of ['access_rename','access_cancel','access_revoke']){
+ for(const id of [b.owner.accessId,otherOwner.accessId])for(const action of ['access_rename','access_cancel','access_revoke','access_hide']){
   const before=JSON.stringify(b.props),result=b.call(action,{token:b.owner.token,id,name:'Cambio'});assert.equal(result.ok,false);assert.match(result.error,/principal/);assert.equal(JSON.stringify(b.props),before);
  }
  assert.equal(b.call('accesses',{token:b.owner.token}).accesses.length,1);
@@ -755,9 +755,9 @@ test('Nombres y filtros validan límites, buscan sin acentos y escapan texto en 
  assert.equal(managedAccess.filterAccesses(rows,'pending','jose').length,1);assert.equal(managedAccess.filterAccesses(rows,'active','').length,0);assert.equal(managedAccess.filterAccesses(rows,'all',managedAccess.accessReference(invite.id)).length,1);
  const React=require('react'),{renderToStaticMarkup}=require('react-dom/server');
  const List=tsModule('src/components/access-manager.tsx',name=>name==='@/lib/managed-access'?managedAccess:name==='@/lib/api'?{}:name==='@/lib/access'?access:name==='@/lib/native'?{}:require(name)).AccessList;
- const render=row=>renderToStaticMarkup(React.createElement(List,{rows:[row],disabled:false,onRename(){},onAction(){}}));
+ const render=row=>renderToStaticMarkup(React.createElement(List,{rows:[row],disabled:false,onRename(){},onAction(){},onRemove(){}}));
  for(const [status,label,action] of [['pending','Pendiente','Cancelar QR'],['active','Activo','Retirar acceso'],['cancelled','Cancelado',null],['revoked','Retirado',null],['expired','Vencido',null],['closed','Cerrado',null]]){
-  const html=render({...rows[0],kind:status==='pending'?'invitation':'device',status,name:'<img src=x onerror=alert(1)>'});assert(html.includes(label));assert(html.includes('Referencia'));assert(html.includes('Editar nombre'));assert(!html.includes('<img src=x'));assert(html.includes('&lt;img'));if(action)assert(html.includes(action));else{assert(!html.includes('Cancelar QR'));assert(!html.includes('Retirar acceso'));}
+  const html=render({...rows[0],kind:status==='pending'?'invitation':'device',status,name:'<img src=x onerror=alert(1)>'});assert(html.includes(label));assert(html.includes('Referencia'));assert(html.includes('Editar nombre'));assert(!html.includes('<img src=x'));assert(html.includes('&lt;img'));if(action){assert(html.includes(action));assert(!html.includes('Eliminar del listado'));}else{assert(!html.includes('Cancelar QR'));assert(!html.includes('Retirar acceso'));assert(html.includes('Eliminar del listado'));}
  }
  assert(render({...rows[0],name:''}).includes('Poner nombre'));assert(render({...rows[0],name:''}).includes('Sin nombre'));
 });
@@ -769,6 +769,74 @@ test('Cliente Android y servidor administran un acceso con nombre, su activació
  await owner.api('access_rename',{id:invite.id,name:'Ana Torres · campo'});await member.api('status');assert.equal((await member.api('records')).profileName,'Ana Torres · campo');
  await member.api('save',{records:[base]});const pending=JSON.stringify(memberState.get('snapshot').records);memberState.set('queue',[base]);
  await owner.api('access_revoke',{id:invite.id});await assert.rejects(()=>member.api('status'),error=>error.code==='ACCESS_DENIED');assert(!memberState.has('session'));assert(!memberState.has('activated'));assert.equal(JSON.stringify(memberState.get('snapshot').records),pending);assert.deepEqual(memberState.get('queue'),[base]);
+});
+test('Eliminar del listado conserva el bloqueo, las mediciones y los demás accesos al refrescar o reintentar',()=>{
+ const b=backend(),invite=b.call('invite',{token:b.owner.token,name:'Ana Torres',accessManagement:true}),member=b.call('activate',{code:invite.code});
+ const current=b.call('invite',{token:b.owner.token,name:'José Pérez',accessManagement:true}),other=b.call('activate',{code:current.code});
+ assert(b.call('sync',{token:member.token,records:[base]}).ok);assert(b.call('access_revoke',{token:b.owner.token,id:member.accessId}).ok);
+ const before={...b.props},rows=JSON.stringify(b.sheets.HUMEDADES.values),reads=b.reads,key=tokenKey(member.token);
+ for(let i=0;i<2;i++){
+  const result=b.call('access_hide',{token:b.owner.token,id:member.accessId});assert(result.ok,result.error);assert.deepEqual(Object.keys(result).sort(),['id','ok']);assert.equal(result.id,member.accessId);
+  const list=b.call('accesses',{token:b.owner.token});assert.equal(list.capabilities.accessCleanup,true);assert.equal(list.accesses.length,1);assert.equal(list.accesses[0].id,other.accessId);
+ }
+ const stored=JSON.parse(b.props[key]);assert(stored.hiddenAt>0);delete stored.hiddenAt;assert.deepEqual(stored,JSON.parse(before[key]));
+ for(const [property,value] of Object.entries(before))if(property!==key)assert.equal(b.props[property],value,property);
+ for(const action of ['status','sync','accesses','invite','access_hide'])assert.equal(b.call(action,{token:member.token,id:member.accessId,records:[]}).code,'ACCESS_DENIED');
+ assert.equal(b.call('activate',{code:invite.code}).code,'ACCESS_DENIED');assert(b.call('status',{token:other.token}).ok);assert(b.call('status',{token:b.owner.token}).ok);
+ assert.equal(b.reads,reads);assert.equal(JSON.stringify(b.sheets.HUMEDADES.values),rows);
+});
+test('También se pueden quitar los QR cancelados o vencidos y los dispositivos cerrados o vencidos',()=>{
+ const b=backend(),entries=[];
+ const cancelled=b.call('invite',{token:b.owner.token});assert(b.call('access_cancel',{token:b.owner.token,id:cancelled.id}).ok);entries.push({id:cancelled.id,code:cancelled.code});
+ const expired=b.call('invite',{token:b.owner.token}),expiredKey='INVITE_'+b.context.hash_(expired.code),expiredValue=JSON.parse(b.props[expiredKey]);expiredValue.expiresAt=Date.now()-1;b.props[expiredKey]=JSON.stringify(expiredValue);entries.push({id:expired.id,code:expired.code});
+ for(const status of ['closed','expired']){
+  const invite=b.call('invite',{token:b.owner.token}),member=b.call('activate',{code:invite.code});
+  if(status==='closed')assert(b.call('logout',{token:member.token}).ok);
+  else{const key=tokenKey(member.token),value=JSON.parse(b.props[key]);value.expiresAt=Date.now()-1;b.props[key]=JSON.stringify(value);}
+  entries.push({id:member.accessId,token:member.token});
+ }
+ const listed=b.call('accesses',{token:b.owner.token}).accesses;assert.deepEqual(new Set(listed.map(row=>row.status)),new Set(['cancelled','expired','closed']));const reads=b.reads;
+ for(const entry of entries){
+  assert(b.call('access_hide',{token:b.owner.token,id:entry.id}).ok);
+  if(entry.code)assert.equal(b.call('activate',{code:entry.code}).code,'ACCESS_DENIED');else assert.equal(b.call('status',{token:entry.token}).code,'ACCESS_DENIED');
+  const key=entry.code?'INVITE_'+b.context.hash_(entry.code):tokenKey(entry.token),stored=JSON.parse(b.props[key]);
+  stored.expiresAt=Date.now()+86400000;delete stored.cancelledAt;delete stored.closedAt;b.props[key]=JSON.stringify(stored);
+  if(entry.code)assert.equal(b.call('activate',{code:entry.code}).code,'ACCESS_DENIED');else assert.equal(b.call('status',{token:entry.token}).code,'ACCESS_DENIED');
+ }
+ assert.deepEqual(b.call('accesses',{token:b.owner.token}).accesses,[]);assert.equal(b.reads,reads);
+});
+test('Una lista desactualizada no elimina un acceso activo ni un QR pendiente, incluso si se activa durante la espera',()=>{
+ const b=backend(),invite=b.call('invite',{token:b.owner.token});
+ let before=JSON.stringify(b.props);assert.equal(b.call('access_hide',{token:b.owner.token,id:invite.id}).ok,false);assert.equal(JSON.stringify(b.props),before);
+ const member=b.call('activate',{code:invite.code});before=JSON.stringify(b.props);assert.equal(b.call('access_hide',{token:b.owner.token,id:member.accessId}).ok,false);assert.equal(JSON.stringify(b.props),before);assert(b.call('status',{token:member.token}).ok);
+ for(const id of ['','INVALID',crypto.randomUUID()])assert.equal(b.call('access_hide',{token:b.owner.token,id}).ok,false);
+ const pending=b.call('invite',{token:b.owner.token}),key='INVITE_'+b.context.hash_(pending.code),value=JSON.parse(b.props[key]);value.expiresAt=Date.now()-1;b.props[key]=JSON.stringify(value);
+ assert.equal(b.call('accesses',{token:b.owner.token}).accesses.find(row=>row.id===pending.id).status,'expired');
+ let held=false;b.context.LockService.getScriptLock=()=>({waitLock(){held=true;delete b.props[key];b.props[tokenKey('f'.repeat(64))]=JSON.stringify({id:pending.id,name:'Activado durante la espera',owner:false,createdAt:Date.now(),expiresAt:Date.now()+86400000});},hasLock:()=>held,releaseLock(){held=false;}});
+ const result=b.call('access_hide',{token:b.owner.token,id:pending.id});assert.equal(result.ok,false);assert.match(result.error,/Primero cancela/);assert.equal(held,false);assert(b.call('status',{token:'f'.repeat(64)}).ok);
+});
+test('La vista de accesos vigentes excluye el historial y permite buscar sin acentos',()=>{
+ const b=backend(),invite=b.call('invite',{token:b.owner.token,name:'José activo'});b.call('activate',{code:invite.code});
+ const pending=b.call('invite',{token:b.owner.token,name:'José pendiente'}),cancelled=b.call('invite',{token:b.owner.token,name:'José cancelado'});b.call('access_cancel',{token:b.owner.token,id:cancelled.id});
+ const rows=b.call('accesses',{token:b.owner.token}).accesses;
+ assert.deepEqual(new Set(managedAccess.filterAccesses(rows,'current','jose').map(row=>row.id)),new Set([invite.id,pending.id]));
+ assert.deepEqual(managedAccess.filterAccesses(rows,'inactive','JOSE').map(row=>row.id),[cancelled.id]);assert.equal(managedAccess.filterAccesses(rows,'all','').length,3);
+});
+test('Cliente y servidor eliminan del listado sin reactivar el celular ni perder sus mediciones pendientes',async()=>{
+ const b=backend(),endpoint=connection.RIEGO_ENDPOINT,ownerState=new Map([['session',{endpoint,token:b.owner.token,owner:true}]]);
+ const http=async options=>({status:200,headers:{'Content-Type':'application/json'},url:options.url,data:b.call(JSON.parse(options.data).action,JSON.parse(options.data))});
+ const owner=activationClient(http,ownerState),invite=await owner.api('invite',{name:'Ana Torres'}),activated=b.call('activate',{code:invite.code});
+ const memberState=new Map([['session',{endpoint,token:activated.token,owner:false}]]),member=activationClient(http,memberState);await member.api('save',{records:[base]});const pending=JSON.stringify(memberState.get('snapshot').records);
+ await owner.api('access_revoke',{id:invite.id});assert.equal((await owner.api('access_hide',{id:invite.id})).id,invite.id);assert.equal((await owner.api('accesses')).accesses.length,0);
+ const reopened=activationClient(http,ownerState);assert.equal((await reopened.api('accesses')).accesses.length,0);
+ await assert.rejects(()=>member.api('status'),error=>error.code==='ACCESS_DENIED');assert.equal(JSON.stringify(memberState.get('snapshot').records),pending);assert(ownerState.has('session'));
+});
+test('Una conexión antigua pide actualizar antes de eliminar y una respuesta incorrecta no confirma otro acceso',async()=>{
+ const id=crypto.randomUUID(),calls=[],state=new Map([['session',{endpoint:connection.RIEGO_ENDPOINT,token:'a'.repeat(64),owner:true}]]);let updated=false;
+ const client=activationClient(async options=>{const p=JSON.parse(options.data);calls.push(p);return {status:200,headers:{'Content-Type':'application/json'},url:options.url,data:p.action==='status'?{ok:true,owner:true,capabilities:{accessManagement:true,...(updated?{accessCleanup:true}:{})}}:{ok:true,id:crypto.randomUUID()}};},state);
+ await assert.rejects(()=>client.api('access_hide',{id}),/Actualiza la conexión/);assert.deepEqual(calls.map(p=>p.action),['status']);assert(state.has('session'));
+ updated=true;await assert.rejects(()=>client.api('access_hide',{id}),/no confirmó/);assert.deepEqual(calls.map(p=>p.action),['status','status','access_hide']);
+ const count=calls.length;await assert.rejects(()=>client.api('access_hide',{id:'INVALID'}),/Referencia/);assert.equal(calls.length,count);
 });
 test('Un cliente no envía invitaciones con nombre a conexiones antiguas ni envía nombres inválidos',async()=>{
  const calls=[],state=new Map([['session',{endpoint:connection.RIEGO_ENDPOINT,token:'a'.repeat(64),owner:true}]]);
